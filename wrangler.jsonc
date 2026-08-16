@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "terranor-tracker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-16",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "triggers": {
+    "crons": ["15 * * * *"]
+  },
+  "observability": {
+    "enabled": true
+  }
+}
