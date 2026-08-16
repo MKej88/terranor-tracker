@@ -9,29 +9,32 @@ Første hovedmål er Q3 2026.
 Systemet følger flere typer informasjon som kan påvirke Terranors omsetning og lønnsomhet:
 
 - **Kontrakter:** start- og sluttdato, kontraktsverdi, årlig omsetningstakt og geografi.
-- **Veivær i Sverige:** målinger fra Trafikverkets værstasjoner langs veiene, blant annet veibanetemperatur, lufttemperatur, vind, nedbør og snø.
+- **Veivær i Sverige:** målinger fra Trafikverkets værstasjoner langs veiene.
 - **Vanlig svensk vær:** målinger fra Sveriges meteorologiske og hydrologiske institutt.
+- **Dansk vær:** meteorologiske observasjoner fra Danmarks Meteorologiske Institut.
+- **Finsk vær:** meteorologiske observasjoner fra Finlands meteorologiske institutt.
 - **Historisk vær:** brukes for å sammenligne dagens forhold med tidligere år på samme sted og samme tid på året.
-- **Tilleggsarbeider og andre aktivitetssignaler:** offentlige bestillinger, utløste opsjoner og andre kildebelagte signaler.
+- **Tilleggsarbeider og aktivitetssignaler:** bestillinger, utløste opsjoner og andre kildebelagte signaler.
 - **Løpende resultatestimat:** omsetning, justert EBITA og etter hvert avvik mot markedets forventninger.
-- **Historikk:** gamle estimater beholdes i stedet for å overskrives, slik at modellen kan etterprøves i ettertid.
+- **Historikk:** gamle estimater beholdes i stedet for å overskrives.
 
 ## Sider
 
 - `/` – hovedside for resultatestimatet.
-- `/status.html` – kort drifts- og datastatus for kontrakter, vær, historikk og datakvalitet.
-- `/fase-b.html` – egen arbeidsflate for Fase B med kilder, nye kandidater og registrerte aktivitetssignaler.
+- `/status.html` – kort drifts- og datastatus.
+- `/fase-b.html` – Fase B: tilleggsarbeider, opsjoner og bestillinger.
+- `/fase-c.html` – Fase C: danske og finske værdata og geografisk dekning.
 
-Statussiden er bevisst holdt kort. Detaljene for opsjoner, tilleggsarbeider og bestillinger ligger på Fase B-siden for å unngå unødvendig scrolling.
+Statussiden er bevisst holdt relativt kort. Fase B og Fase C har egne detaljsider for å unngå unødvendig scrolling.
 
 ## Forklaring av værkildene
 
-Forkortelsene brukes i koden og i enkelte API-adresser, men på nettsiden vises mer forklarende navn.
+Forkortelsene brukes i koden og i enkelte API-adresser, men nettsiden bruker mer forklarende navn.
 
-- **VViS:** Trafikverkets system for veiværstasjoner i Sverige. Dette er den viktigste kilden for forhold direkte langs veiene.
-- **SMHI:** Sveriges meteorologiske og hydrologiske institutt. Gir vanlige meteorologiske målinger og historikk.
-- **DMI:** Danmarks Meteorologiske Institut. Planlagt kilde for danske kontrakter.
-- **FMI:** Finlands meteorologiske institutt. Planlagt kilde for finske kontrakter.
+- **VViS:** Trafikverkets system for veiværstasjoner i Sverige.
+- **SMHI:** Sveriges meteorologiske og hydrologiske institutt.
+- **DMI:** Danmarks Meteorologiske Institut. Fase C bruker det åpne API-et for meteorologiske observasjoner.
+- **FMI:** Finlands meteorologiske institutt. Fase C bruker instituttets åpne WFS-tjeneste for observasjoner.
 
 ## Værbaserte arbeidsforhold
 
@@ -39,95 +42,88 @@ Systemet beregner en egen score for hvor gunstige værforholdene er for drift og
 
 Scoren bruker blant annet nedbør, vind, snø, veibanetemperatur, frost, sterk varme og datadekning. Dette er **ikke et direkte omsetningsestimat**.
 
-Fra fase A brukes flere målestasjoner per kontrakt. Store driftsområder kan bruke opptil tre veiværstasjoner og to vanlige værstasjoner. Dette reduserer risikoen for at én enkelt stasjon gir et misvisende bilde.
+Fra Fase A brukes flere målestasjoner per svensk kontrakt. Store driftsområder kan bruke opptil tre veiværstasjoner og to vanlige værstasjoner.
 
 ## Fase A – historikk og geografi
 
-Fase A er satt i gang og består av to deler.
+Fase A er teknisk bygget og datainnhenting/sluttkontroll pågår.
 
-### Tiårig sammenligningsgrunnlag for vær
+### Tiårig sammenligningsgrunnlag
 
 Systemet henter gradvis kvalitetssikret historisk vær fra SMHIs korrigerte arkiv. For Q3 brukes perioden **2016–2025** som et tiårig sammenligningsgrunnlag for lufttemperatur, vindhastighet og nedbør.
 
-Dette omtales som et **tiårig sammenligningsgrunnlag**, ikke som SMHIs offisielle klimanormal. Arkivinnlastingen kjøres gradvis. Én kombinasjon av værstasjon og værparameter behandles automatisk per time. Resultatet lagres som kompakte sammenligningstall for dagene i juli, august og september; hele råarkivet lagres ikke i databasen.
+Dette omtales som et **tiårig sammenligningsgrunnlag**, ikke som SMHIs offisielle klimanormal. Én kombinasjon av værstasjon og værparameter behandles automatisk per time. Resultatet lagres som kompakte sammenligningstall for juli, august og september.
 
-Når nok arkivjobber er ferdige, kan `/api/climate/comparison` vise om de siste dagene har vært mer eller mindre arbeidsvennlige enn det tiårige grunnlaget.
+`/api/climate/comparison` kan brukes til å sammenligne aktuelle forhold med det tiårige grunnlaget når tilstrekkelig historikk er klar.
 
 ### Bedre geografisk dekning
 
-Den løpende scoren for værbaserte arbeidsforhold bruker flere målestasjoner per kontrakt der de finnes. Avstand og rangering påvirker vektingen.
-
-Geografien er fortsatt basert på representative midtpunkter for kontraktsområdene. Eksakte kontraktspolygoner bør legges inn senere dersom slike data blir tilgjengelige.
+Den løpende svenske scoren bruker flere målestasjoner per kontrakt der de finnes. Avstand og rangering påvirker vektingen. Geografien bygger fortsatt på representative midtpunkter; eksakte kontraktspolygoner kan forbedre modellen senere.
 
 ## Fase B – tilleggsarbeider, opsjoner og bestillinger
 
-Fase B er satt i gang. Målet er å fange opp dokumenterte aktivitetssignaler som kan gi informasjon om fremtidig arbeidsmengde og lønnsomhet uten å late som om hele ordreverdien blir kvartalsomsetning.
+Fase B fanger opp dokumenterte aktivitetssignaler som kan gi informasjon om fremtidig arbeidsmengde og lønnsomhet.
 
-### Egen Fase B-side
+`/fase-b.html` viser aktive kilder, nye kandidater, mulig kontraktskobling, oppgitt verdi, relevans og registrerte signaler. Nye kandidater kan godkjennes eller ignoreres direkte på siden.
 
-`/fase-b.html` er hovedsiden for Fase B. Den viser:
+Terranors offisielle svenske nyhetsside kontrolleres automatisk hver sjette time. Tydelige opsjoner, tilleggsarbeider og nye bestillinger kan registreres som signaler. Nye hovedkontrakter håndteres separat for å unngå dobbelttelling.
 
-- aktive og planlagte kilder
-- når kildene sist ble kontrollert
-- nye funn som venter på vurdering
-- mulig kontraktskobling og oppgitt verdi
-- relevans for funnet
-- registrerte opsjoner, tilleggsarbeider og bestillinger
-- lenke tilbake til originalkilden
+Et ordre- eller aktivitetssignal blir **ikke automatisk omgjort til omsetning eller justert EBITA**.
 
-Nye kandidater kan godkjennes eller ignoreres direkte på siden. Det finnes også en knapp for å kjøre et nytt kildesøk manuelt.
+## Fase C – Danmark og Finland
 
-### Første automatiske kilde
+Fase C er satt i gang for å bygge tilsvarende meteorologisk datagrunnlag utenfor Sverige.
 
-Terranors offisielle svenske nyhetsside kontrolleres automatisk **hver sjette time**. Nye artikler klassifiseres som blant annet:
+### Danmark
 
-- utløst opsjon
-- tilleggsarbeid
-- ny bestilling
-- ny hovedkontrakt
-- annen aktivitet
+Systemet bruker DMI sitt åpne API for meteorologiske observasjoner. For hvert dansk væranker hentes listen over aktive målestasjoner, og nærmeste egnede stasjon velges. Det samles foreløpig:
 
-Tydelige opsjoner, tilleggsarbeider og nye bestillinger fra den offisielle selskapskilden kan registreres automatisk som aktivitetssignaler. Nye hovedkontrakter blir i første omgang kandidater fordi de hører hjemme i kontraktsregisteret og ikke skal dobbelttelles som tilleggsarbeid.
+- lufttemperatur
+- vindhastighet
+- relativ luftfuktighet
+- nedbør siste time
 
-Systemet forsøker også å hente oppgitt ordreverdi og koble funnet til en kjent kontrakt når dette kan gjøres med rimelig sikkerhet.
+Første kjente værankere er **Ikast-Brande, Tønder og København**. København-kontrakten starter først i 2027, men innsamlingen bygges opp på forhånd.
+
+Danmarks fire nye statlige sommerkontrakter ligger fortsatt aggregert i modellgrunnlaget og er ikke splittet i fire separate geografiske kontraktsrader. Dette må forbedres før de kan få kontraktsspesifikke værvekter.
+
+### Finland
+
+Systemet bruker FMI sin åpne WFS-tjeneste med lagrede observasjonsspørringer. Første navngitte steder er:
+
+- Kemi
+- Ii
+- Sørøst-Finland, med Lappeenranta som eksplisitt regional proxy for det kjente dreneringsarbeidet
+
+Kemi og Ii starter først 1. oktober 2026 og er derfor først og fremst relevante for Q4 og fremover. Terranor har en betydelig eksisterende finsk portefølje som ennå ikke er kontrakt-for-kontrakt-geokodet i trackeren. Fase C er derfor **ikke full Finland-dekning ennå**.
 
 ### Viktig modellregel
 
-Et ordre- eller aktivitetssignal blir **ikke automatisk omgjort til omsetning eller justert EBITA**. Tidspunkt for inntektsføring, margin og eventuell Q3-effekt må modelleres separat.
+DMI- og FMI-data lagres i samme observasjonstabell som øvrige værdata, men de blir **ikke automatisk gjort om til omsetning eller EBITA**. Først må geografisk dekning, historikk og forholdet mellom vær og kontraktsøkonomi valideres.
 
-Fase B har et eget kandidatregister slik at uklare funn kan vurderes, godkjennes eller ignoreres uten at råfunnet forsvinner.
-
-### Kilder som skal kobles på videre
-
-Neste trinn i fase B er å legge til mer direkte offentlige kilder fra Trafikverket og deretter relevante kommunale beslutnings- og bestillingskilder. Disse skal prioriteres fremfor usikre sekundærkilder.
+`/fase-c.html` viser kildestatus, antall lagrede målinger, værankere, målestasjoner, avstand og kjente begrensninger. Det finnes også knapper for å kjøre Danmark og Finland manuelt under testing.
 
 ## Nåværende status
 
-Følgende er satt opp og i drift:
+Følgende er satt opp eller i aktiv innsamling:
 
 - privat innlogging
 - Cloudflare D1-database
 - kontraktsregister
-- timebasert innsamling av svenske værdata
-- veivær fra Trafikverket
-- vanlige svenske værstasjoner
-- 60-dagers historisk innlasting av svenske værdata
-- tiårig sammenligningsgrunnlag fra kvalitetssikret SMHI-arkiv
-- flerstasjonsdekning for værbaserte arbeidsforhold
-- kontraktsbro for Q3
-- register for tilleggsarbeider og andre signaler
+- svenske veivær- og meteorologiske data
+- 60-dagers svensk værhistorikk
+- tiårig svensk sammenligningsgrunnlag
+- flerstasjonsdekning for svenske arbeidsforhold
+- Fase B-kandidat- og signalregister
 - automatisk overvåking av Terranors offisielle nyhetsside
-- kandidatregister for nye aktivitetssignaler
-- kvalitetskontroll av datainnsamlingen
-- historikk for beregnede scorer og estimater
-- kort statusside på `/status.html`
-- egen Fase B-side på `/fase-b.html`
-
-Danske og finske værkilder er planlagt, men ikke koblet til ennå.
+- Fase C-infrastruktur for DMI og FMI
+- danske og finske værankere
+- egen Fase B-side og egen Fase C-side
+- kvalitetskontroll og historikk
 
 ## Automatisk kjøring
 
-Cloudflare kjører en planlagt jobb hver time, 15 minutter over hel time:
+Cloudflare kjører hovedjobben hver time, 15 minutter over hel time:
 
 ```text
 15 * * * *
@@ -135,45 +131,48 @@ Cloudflare kjører en planlagt jobb hver time, 15 minutter over hel time:
 
 Den timebaserte jobben kjører blant annet:
 
-1. nye svenske værmålinger
-2. nye veiværmålinger fra Trafikverket
+1. nye svenske meteorologiske målinger
+2. nye svenske veiværmålinger
 3. beregning av værbaserte arbeidsforhold
-4. gradvis innlasting av manglende 60-dagershistorikk
-5. gradvis bygging av tiårig sammenligningsgrunnlag for Q3-vær
-6. hver sjette time: kontroll av den aktive kilden for opsjoner, tilleggsarbeider og bestillinger
+4. gradvis 60-dagershistorikk
+5. gradvis tiårig sammenligningsgrunnlag
+6. danske DMI-observasjoner
+7. finske FMI-observasjoner
+8. hver sjette time: Fase B-kildeovervåking
 
 ## Teknisk oppbygning
 
-Noen produktnavn og tekniske navn kan ikke oversettes naturlig og beholdes derfor:
-
-- **Cloudflare Worker:** den serverløse bakgrunnstjenesten som kjører API-et og de planlagte jobbene.
-- **Cloudflare D1:** databasen som lagrer kontrakter, værmålinger, signaler og historikk.
-- **Workers Static Assets:** de statiske filene som utgjør nettsiden.
-- **Cron:** teknisk navn på tidsplanen som starter den automatiske jobben hver time.
-- **API:** grensesnittet som nettsiden og kontrolladressene bruker for å hente data fra bakgrunnstjenesten.
+- **Cloudflare Worker:** serverløs bakgrunnstjeneste for API og tidsstyrte jobber.
+- **Cloudflare D1:** databasen for kontrakter, værmålinger, signaler og historikk.
+- **Workers Static Assets:** nettsidene og JavaScript-filene.
+- **Cron:** tidsplanen som starter den automatiske jobben.
+- **API:** grensesnittet sidene bruker for å hente data.
 
 ## Mappestruktur
 
 ```text
-public/index.html    Hovedsiden
-public/status.html   Kort drifts- og datastatus
-public/fase-b.html   Fase B: tilleggsarbeider og bestillinger
-public/fase-b.js     Visning og behandling av Fase B-funn
-src/index.js         Grunnleggende API, innlogging og timebasert innsamling
-src/index2.js        Utvidede API-funksjoner
-src/weather.js       Vanlige svenske værdata
-src/vvis.js          Veivær fra Trafikverket
-src/workability.js   Værbaserte arbeidsforhold
-src/backfill.js      60-dagers historisk innlasting
-src/climate.js       Tiårig sammenligningsgrunnlag fra SMHI
-src/geography.js     Kontroll av geografisk værdekning
-src/activity.js      Fase B: opsjoner, tilleggsarbeider og bestillinger
-src/bridge.js        Kontraktsbro for Q3
-src/signals.js       Register over aktivitetssignaler
-src/quality.js       Kvalitetskontroll
-db/                  Databaseskjema
-wrangler.jsonc       Cloudflare-oppsett
-package.json         Tekniske kommandoer
+public/index.html       Hovedsiden
+public/status.html      Kort drifts- og datastatus
+public/fase-b.html      Fase B
+public/fase-b.js        Fase B-visning og behandling
+public/fase-c.html      Fase C – Danmark og Finland
+public/fase-c.js        Fase C-visning og manuelle testkjøringer
+src/index.js            Grunnleggende API og svensk innsamling
+src/index2.js           Utvidede API-funksjoner og planlagte jobber
+src/weather.js          Vanlige svenske værdata
+src/vvis.js             Veivær fra Trafikverket
+src/workability.js      Værbaserte arbeidsforhold
+src/backfill.js         60-dagers svensk historikk
+src/climate.js          Tiårig svensk sammenligningsgrunnlag
+src/geography.js        Svensk geografisk værdekning
+src/activity.js         Fase B-kildeovervåking
+src/nordic.js           Fase C – DMI/FMI og værankere
+src/bridge.js           Kontraktsbro for Q3
+src/signals.js          Aktivitetssignaler
+src/quality.js          Kvalitetskontroll
+db/                     Databaseskjema
+wrangler.jsonc          Cloudflare-oppsett
+package.json            Tekniske kommandoer
 ```
 
 ## Viktige API-adresser
@@ -183,18 +182,20 @@ package.json         Tekniske kommandoer
 /api/status                  Samlet status for datainnsamlingen
 /api/contracts               Kontraktsregister
 /api/weather/contracts       Svenske værstasjoner per kontrakt
-/api/vvis/contracts          Veiværstasjoner per kontrakt
+/api/vvis/contracts          Svenske veiværstasjoner per kontrakt
 /api/workability             Værbaserte arbeidsforhold
 /api/workability/history     Historikk for arbeidsforhold
-/api/backfill/smhi/status    Status for 60-dagers værhistorikk
+/api/backfill/smhi/status    Status for 60-dagers svensk værhistorikk
 /api/climate/status          Status for tiårig sammenligningsgrunnlag
 /api/climate/run             Kjør neste historiske arkivjobb manuelt
 /api/climate/comparison      Vær mot tiårig sammenligningsgrunnlag
-/api/geography               Geografisk dekning per kontrakt
-/api/activity/run            Kjør fase B-overvåkingen manuelt
-/api/activity/status         Status for fase B og registrerte signaler
-/api/activity/candidates     Nye kandidater fra overvåkede kilder
-/api/activity/review         Godkjenn eller ignorer en kandidat
+/api/geography               Svensk geografisk dekning
+/api/activity/run            Kjør Fase B manuelt
+/api/activity/status         Status for Fase B
+/api/activity/candidates     Fase B-kandidater
+/api/activity/review         Godkjenn eller ignorer kandidat
+/api/nordic/run              Kjør Fase C manuelt; country=Denmark/Finland/all
+/api/nordic/status           Fase C-status, værankere og observasjonsdekning
 /api/contract-bridge         Kontraktsbro for Q3
 /api/signals                 Registrerte aktivitetssignaler
 /api/data-quality            Kvalitetskontroll
@@ -202,13 +203,13 @@ package.json         Tekniske kommandoer
 
 ## Arbeidsplan frem mot Q3 2026
 
-1. **Fase A – pågår:** fullfør tiårig værgrunnlag og sluttkontroll av geografisk dekning.
-2. **Fase B – pågår:** bygg ut kildeovervåkingen for tilleggsarbeider, opsjoner og offentlige bestillinger.
-3. Koble danske og finske værdata til relevante kontrakter.
+1. **Fase A – pågår:** fullfør historikk og sluttvalider geografisk dekning.
+2. **Fase B – pågår:** bygg ut offentlige kilder for tilleggsarbeider og bestillinger.
+3. **Fase C – pågår:** valider DMI/FMI-kjedene og utvid kontraktsgeografien i Danmark og Finland.
 4. Etter Q2-rapporten: sammenlign den låste Q2-modellen med faktiske tall.
 5. Kalibrer modellen én gang og dokumenter endringene.
 6. Lås Q3-metodikken og lagre alle senere estimater uten overskriving.
-7. Sammenlign det låste Q3-estimatet med markedets forventninger og faktiske Q3-tall.
+7. Sammenlign låst Q3-estimat med markedets forventninger og faktiske Q3-tall.
 
 ## Lokale kommandoer
 
