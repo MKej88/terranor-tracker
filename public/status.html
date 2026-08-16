@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Status · Terranor Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero compact-hero">
+        <div>
+          <p class="eyebrow">DRIFTSSTATUS</p>
+          <h1>Status</h1>
+          <p class="lede">En enkel oversikt over hva som er hentet inn, hvor ferske dataene er og om noe trenger oppfølging.</p>
+          <nav class="page-nav">
+            <a href="/">← Til hovedsiden</a>
+            <button id="refresh-button" type="button">Oppdater nå</button>
+          </nav>
+        </div>
+        <div class="pill" id="overall-pill">henter status…</div>
+      </header>
+
+      <section class="grid kpis status-kpis">
+        <article class="card">
+          <span>Samlet datakvalitet</span>
+          <strong id="quality-score">—</strong>
+          <small id="quality-text">Kontrollerer datakildene</small>
+        </article>
+        <article class="card">
+          <span>Kontrakter i databasen</span>
+          <strong id="contract-count">—</strong>
+          <small>Registrerte Terranor-kontrakter</small>
+        </article>
+        <article class="card">
+          <span>Værmålinger lagret</span>
+          <strong id="weather-count">—</strong>
+          <small>Vanlige vær- og veiværmålinger samlet</small>
+        </article>
+        <article class="card">
+          <span>Historiske værstasjoner</span>
+          <strong id="backfill-count">—</strong>
+          <small id="backfill-text">Historisk innlasting</small>
+        </article>
+      </section>
+
+      <section class="grid two status-two">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">SVENSKE VÆRDATA</p>
+              <h2>Siste innhenting</h2>
+            </div>
+          </div>
+          <div class="status-list" id="collection-list">
+            <div class="status-row"><span>Henter data…</span><b>—</b></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">AUTOMATISKE KONTROLLER</p>
+              <h2>Datakvalitet</h2>
+            </div>
+          </div>
+          <div class="status-list" id="check-list">
+            <div class="status-row"><span>Kontrollerer…</span><b>—</b></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">DATA I DATABASEN</p>
+            <h2>Dekning per værkilde</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table">
+            <thead>
+              <tr>
+                <th>Kilde</th>
+                <th>Antall målinger</th>
+                <th>Første måling</th>
+                <th>Siste måling</th>
+              </tr>
+            </thead>
+            <tbody id="range-body">
+              <tr><td colspan="4">Henter data…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="grid two status-panel-gap">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">HISTORISK VÆR</p>
+              <h2>Innlasting av historikk</h2>
+            </div>
+          </div>
+          <div class="progress-track"><div class="progress-bar" id="backfill-progress"></div></div>
+          <p class="status-note" id="backfill-detail">Henter status…</p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">ANALYSEGRUNNLAG</p>
+              <h2>Hva som er klart</h2>
+            </div>
+          </div>
+          <div class="status-list" id="model-list">
+            <div class="status-row"><span>Henter status…</span><b>—</b></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">EVENTUELLE PROBLEMER</p>
+            <h2>Stasjoner som trenger oppfølging</h2>
+          </div>
+        </div>
+        <div id="problem-list" class="problem-list">
+          <p class="status-note">Kontrollerer målestasjonene…</p>
+        </div>
+      </section>
+
+      <p class="updated-line" id="updated-line">—</p>
+      <footer>Terranor Tracker · statusside</footer>
+    </main>
+    <script src="/status.js" type="module"></script>
+  </body>
+</html>
