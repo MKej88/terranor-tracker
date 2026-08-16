@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Fase B · Terranor Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero compact-hero">
+        <div>
+          <p class="eyebrow">FASE B</p>
+          <h1>Tilleggsarbeider og bestillinger</h1>
+          <p class="lede">Egen oversikt over kildebelagte opsjoner, tilleggsarbeider, nye bestillinger og andre aktivitetssignaler.</p>
+          <nav class="page-nav">
+            <a href="/">← Hovedsiden</a>
+            <a href="/status.html">Datastatus</a>
+            <button id="run-button" type="button">Søk etter nye funn</button>
+            <button id="refresh-button" type="button">Oppdater siden</button>
+          </nav>
+        </div>
+        <div class="pill" id="phase-pill">henter status…</div>
+      </header>
+
+      <section class="grid kpis status-kpis">
+        <article class="card">
+          <span>Aktive kilder</span>
+          <strong id="active-sources">—</strong>
+          <small>Kilder som kontrolleres automatisk</small>
+        </article>
+        <article class="card">
+          <span>Nye funn</span>
+          <strong id="new-candidates">—</strong>
+          <small>Venter på vurdering</small>
+        </article>
+        <article class="card">
+          <span>Registrerte signaler</span>
+          <strong id="signal-count">—</strong>
+          <small>Opsjoner, tilleggsarbeider og bestillinger</small>
+        </article>
+        <article class="card">
+          <span>Sist kontrollert</span>
+          <strong id="last-run-age">—</strong>
+          <small id="last-run-time">Automatisk kontroll hver sjette time</small>
+        </article>
+      </section>
+
+      <section class="grid two">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">KILDER</p>
+              <h2>Hva som overvåkes</h2>
+            </div>
+          </div>
+          <div class="status-list" id="source-list">
+            <div class="status-row"><span>Henter kilder…</span><b>—</b></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">MODELLREGEL</p>
+              <h2>Hvordan funn brukes</h2>
+            </div>
+          </div>
+          <p class="status-note no-top-margin" id="accounting-rule">Henter regel…</p>
+          <div class="status-list compact-rule-list">
+            <div class="status-row"><span>Automatisk registrering</span><b>tydelige opsjoner og bestillinger</b></div>
+            <div class="status-row"><span>Manuell vurdering</span><b>uklare funn og hovedkontrakter</b></div>
+            <div class="status-row"><span>Resultatestimat</span><b>påvirkes ikke automatisk</b></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">NYE FUNN</p>
+            <h2>Trenger vurdering</h2>
+          </div>
+          <span class="pill" id="candidate-pill">—</span>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Dato</th>
+                <th>Funn</th>
+                <th>Type</th>
+                <th>Kontrakt</th>
+                <th>Verdi</th>
+                <th>Relevans</th>
+                <th>Handling</th>
+              </tr>
+            </thead>
+            <tbody id="candidate-body">
+              <tr><td colspan="7">Henter funn…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">REGISTRERTE SIGNALER</p>
+            <h2>Opsjoner, tilleggsarbeider og bestillinger</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Dato</th>
+                <th>Signal</th>
+                <th>Type</th>
+                <th>Kontrakt</th>
+                <th>Verdi</th>
+                <th>Sikkerhet</th>
+                <th>Kilde</th>
+              </tr>
+            </thead>
+            <tbody id="signal-body">
+              <tr><td colspan="7">Henter signaler…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <p class="updated-line" id="updated-line">—</p>
+      <footer>Terranor Tracker · Fase B</footer>
+    </main>
+    <script src="/fase-b.js" type="module"></script>
+  </body>
+</html>
