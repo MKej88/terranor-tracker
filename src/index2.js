@@ -14,10 +14,24 @@ const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
 });
 
 async function authenticatedFallback(request, env) {
-  // The existing worker owns authentication. For new /api routes it returns 401
-  // before login and 404 after successful authentication, so we only execute a
-  // new handler after the base worker has confirmed the session.
   return baseWorker.fetch(request, env);
+}
+
+async function baseResponseWithNorwegianLogin(request, env, url) {
+  const response = await baseWorker.fetch(request, env);
+  if (url.pathname !== "/login" || !String(response.headers.get("content-type") || "").includes("text/html")) {
+    return response;
+  }
+
+  const body = (await response.text())
+    .replace("Privat earnings nowcast", "Privat resultatestimat")
+    .replace("Cloudflare-secrets", "hemmelige miljøvariabler i Cloudflare");
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 export default {
@@ -32,7 +46,7 @@ export default {
       "/api/data-quality",
     ].includes(url.pathname);
 
-    if (!isExtendedApi) return baseWorker.fetch(request, env);
+    if (!isExtendedApi) return baseResponseWithNorwegianLogin(request, env, url);
 
     const authResponse = await authenticatedFallback(request, env);
     if (authResponse.status !== 404) return authResponse;
@@ -85,11 +99,8 @@ export default {
   },
 
   async scheduled(controller, env) {
-    // Keep the existing hourly SMHI/VViS/workability collection intact.
     await baseWorker.scheduled(controller, env);
 
-    // Progressive Q3-to-date backfill: only stations without enough historical
-    // observations are selected, so this becomes a near-no-op when complete.
     if (env.DB) {
       try {
         const result = await runSmhiBackfill(env.DB, { days: 60, maxStations: 2 });
