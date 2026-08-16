@@ -182,10 +182,10 @@ function fmiParameterFromMember(member) {
   const href = member.match(/observedProperty[^>]+(?:xlink:href|href)=["']([^"']+)["']/i)?.[1] || "";
   const name = member.match(/<gml:name[^>]*>([\s\S]*?)<\/gml:name>/i)?.[1] || "";
   const text = `${href} ${xmlDecode(name)}`.toLowerCase();
-  if (/precip/.test(text)) return "precipitation_mm";
-  if (/windspeed|wind speed|ws_10min/.test(text)) return "wind_ms";
-  if (/humidity|relative humidity|\brh\b/.test(text)) return "humidity_pct";
-  if (/temperature|\bt2m\b/.test(text)) return "air_temp_c";
+  if (/pra_pt1h_acc|precipitation amount|precip/.test(text)) return "precipitation_mm";
+  if (/ws_pt1h_avg|windspeed|wind speed|ws_10min/.test(text)) return "wind_ms";
+  if (/rh_pt1h_avg|humidity|relative humidity|\brh\b/.test(text)) return "humidity_pct";
+  if (/ta_pt1h_avg|temperature|\bt2m\b/.test(text)) return "air_temp_c";
   return null;
 }
 
@@ -217,7 +217,7 @@ function parseFmi(xml, target) {
         precipitation_mm: null,
         wind_ms: null,
         humidity_pct: null,
-        raw: { location: target.label, requestedPlace: target.location_name, historicalBackfill: true },
+        raw: { location: target.label, requestedPlace: target.location_name, historicalBackfill: true, hourlyProduct: true },
       };
       row.station_id = stationId || row.station_id;
       row[field] = value;
@@ -232,36 +232,35 @@ async function backfillFmiTarget(db, target, startIso, endIso) {
     service: "WFS",
     version: "2.0.0",
     request: "getFeature",
-    storedquery_id: "fmi::observations::weather::timevaluepair",
+    storedquery_id: "fmi::observations::weather::hourly::timevaluepair",
     starttime: startIso,
     endtime: endIso,
-    timestep: "60",
-    parameters: "temperature,windspeedms,humidity,precipitation1h",
+    parameters: "TA_PT1H_AVG,RH_PT1H_AVG,WS_PT1H_AVG,PRA_PT1H_ACC",
   });
 
-  // Historical collection should use the exact station discovered by the live collector.
-  // FMI officially supports fmisid for this stored query. Falling back to place is only for
-  // unlinked targets and avoids re-running fuzzy place resolution for every historical chunk.
+  // Historical backfill uses FMI's dedicated hourly product rather than the real-time
+  // instantaneous query used by the live collector. Once the live collector has resolved
+  // a station, lock historical requests to that exact FMI station ID.
   const numericStationId = /^\d+$/.test(String(target.station_id || "")) ? String(target.station_id) : null;
   const selector = numericStationId ? `fmisid ${numericStationId}` : `place ${target.location_name}`;
   if (numericStationId) params.set("fmisid", numericStationId);
   else params.set("place", target.location_name);
 
   const response = await fetch(`${FMI_WFS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/1.2", "accept": "application/xml,text/xml" },
+    headers: { "user-agent": "Terranor-Tracker/1.3", "accept": "application/xml,text/xml" },
   });
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`FMI ${selector} historikk feilet: ${response.status} ${body.slice(0, 220)}`);
+    throw new Error(`FMI hourly ${selector} historikk feilet: ${response.status} ${body.slice(0, 500)}`);
   }
   const xml = await response.text();
   if (/ExceptionReport|ExceptionText/i.test(xml)) {
     const message = xml.match(/<[^>]*ExceptionText[^>]*>([\s\S]*?)<\/[^>]*ExceptionText>/i)?.[1];
-    throw new Error(`FMI ${selector} svarte med feil: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
+    throw new Error(`FMI hourly ${selector} svarte med feil: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
   }
   const parsed = parseFmi(xml, target);
   if (!parsed.rows.length) {
-    throw new Error(`FMI ${selector} ga ingen historiske observasjoner for ${startIso}–${endIso}`);
+    throw new Error(`FMI hourly ${selector} ga ingen historiske observasjoner for ${startIso}–${endIso}`);
   }
   if (parsed.stationId) {
     await db.prepare(`UPDATE nordic_weather_targets SET station_id=?, station_name=?, last_linked_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
@@ -274,6 +273,7 @@ async function backfillFmiTarget(db, target, startIso, endIso) {
     stationId: parsed.stationId,
     stationName: parsed.stationName,
     selector,
+    product: "fmi::observations::weather::hourly::timevaluepair",
     resolution: "hourly",
   };
 }
@@ -356,6 +356,7 @@ async function runTask(db, target, days) {
       observationsWritten: collected.written || 0,
       resolution: collected.resolution || "hourly",
       selector: collected.selector || null,
+      product: collected.product || null,
       status: "ok",
     };
   } catch (error) {
@@ -381,7 +382,7 @@ export async function runNordicBackfill(db, { days = 60, maxTasks = 2 } = {}) {
     tasksAttempted: details.length,
     details,
     completeBeforeRun: coverage.length > 0 && coverage.every((x) => x.complete),
-    note: "Historikken fylles bakover i små deler. Danmark aggregeres til timeverdier og bruker 7-dagersblokker; Finland bruker 14-dagersblokker og hentes med låst FMI-stasjons-ID når den er kjent.",
+    note: "Historikken fylles bakover i små deler. Danmark aggregeres til timeverdier og bruker 7-dagersblokker; Finland bruker FMIs dedikerte timesprodukt i 14-dagersblokker og låst stasjons-ID når den er kjent.",
   };
 }
 
