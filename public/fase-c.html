@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Fase C · Terranor Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero compact-hero">
+        <div>
+          <p class="eyebrow">FASE C</p>
+          <h1>Danmark og Finland</h1>
+          <p class="lede">Værdata for kjente danske og finske kontraktsområder. Innsamlingen brukes som analysegrunnlag og påvirker ikke resultatestimatet automatisk.</p>
+          <nav class="page-nav">
+            <a href="/">← Hovedsiden</a>
+            <a href="/status.html">Datastatus</a>
+            <a href="/fase-b.html">Fase B</a>
+            <button id="run-denmark" type="button">Hent Danmark nå</button>
+            <button id="run-finland" type="button">Hent Finland nå</button>
+            <button id="refresh-button" type="button">Oppdater siden</button>
+          </nav>
+        </div>
+        <div class="pill" id="phase-pill">henter status…</div>
+      </header>
+
+      <section class="grid kpis status-kpis">
+        <article class="card">
+          <span>Danske værankere</span>
+          <strong id="denmark-targets">—</strong>
+          <small id="denmark-linked">Venter på første kobling</small>
+        </article>
+        <article class="card">
+          <span>Finske værankere</span>
+          <strong id="finland-targets">—</strong>
+          <small id="finland-linked">Venter på første kobling</small>
+        </article>
+        <article class="card">
+          <span>Danske målinger</span>
+          <strong id="dmi-observations">—</strong>
+          <small id="dmi-latest">Ingen målinger ennå</small>
+        </article>
+        <article class="card">
+          <span>Finske målinger</span>
+          <strong id="fmi-observations">—</strong>
+          <small id="fmi-latest">Ingen målinger ennå</small>
+        </article>
+      </section>
+
+      <section class="grid two">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">DANMARK</p>
+              <h2>Danmarks Meteorologiske Institut</h2>
+            </div>
+            <span class="pill" id="dmi-pill">—</span>
+          </div>
+          <div class="status-list" id="dmi-status"></div>
+          <p class="status-note">Systemet velger nærmeste aktive meteorologiske målestasjon til hvert dansk væranker.</p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">FINLAND</p>
+              <h2>Finlands meteorologiske institutt</h2>
+            </div>
+            <span class="pill" id="fmi-pill">—</span>
+          </div>
+          <div class="status-list" id="fmi-status"></div>
+          <p class="status-note">Systemet bruker instituttets åpne WFS-tjeneste og finner observasjoner ved navngitte kontraktssteder.</p>
+        </article>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">GEOGRAFISK DEKNING</p>
+            <h2>Værankere og målestasjoner</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Land</th>
+                <th>Område</th>
+                <th>Kontrakt</th>
+                <th>Værkilde</th>
+                <th>Målestasjon</th>
+                <th>Avstand</th>
+                <th>Sikkerhet</th>
+              </tr>
+            </thead>
+            <tbody id="target-body">
+              <tr><td colspan="7">Henter geografisk dekning…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="grid two status-panel-gap">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">METODE</p>
+              <h2>Hvordan dataene brukes</h2>
+            </div>
+          </div>
+          <div class="status-list" id="method-list"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">BEGRENSNINGER</p>
+              <h2>Hva som fortsatt mangler</h2>
+            </div>
+          </div>
+          <div class="problem-list" id="limitation-list"></div>
+        </article>
+      </section>
+
+      <p class="updated-line" id="updated-line">—</p>
+      <footer>Terranor Tracker · Fase C</footer>
+    </main>
+    <script src="/fase-c.js" type="module"></script>
+  </body>
+</html>
