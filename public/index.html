@@ -11,33 +11,33 @@
     <main class="shell">
       <header class="hero">
         <div>
-          <p class="eyebrow">PRIVATE EARNINGS NOWCAST</p>
+          <p class="eyebrow">PRIVAT RESULTATESTIMAT</p>
           <h1>Terranor Tracker</h1>
-          <p class="lede">Kontrakter, vær, extra works og forecast-historikk frem mot Q3 2026.</p>
+          <p class="lede">Kontrakter, værforhold, tilleggsarbeider og historikk for estimater frem mot Q3 2026.</p>
         </div>
         <div class="pill" id="health-pill">kobler til…</div>
       </header>
 
       <section class="grid kpis">
         <article class="card">
-          <span>Target quarter</span>
+          <span>Kvartal</span>
           <strong>Q3 2026</strong>
           <small>Rapport 10. november</small>
         </article>
         <article class="card">
-          <span>Revenue nowcast</span>
+          <span>Omsetningsestimat</span>
           <strong id="revenue">—</strong>
           <small>Kalibreres etter Q2</small>
         </article>
         <article class="card">
-          <span>Adj. EBITA</span>
+          <span>Justert EBITA</span>
           <strong id="ebita">—</strong>
-          <small>Separat marginmodell</small>
+          <small>Egen marginmodell</small>
         </article>
         <article class="card">
-          <span>Confidence</span>
+          <span>Modellsikkerhet</span>
           <strong id="confidence">—</strong>
-          <small>Bygges opp med live data</small>
+          <small>Øker når datagrunnlaget blir større</small>
         </article>
       </section>
 
@@ -45,7 +45,7 @@
         <article class="panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">MODEL STATUS</p>
+              <p class="eyebrow">STATUS FOR MODELLEN</p>
               <h2>Datainnsamling</h2>
             </div>
           </div>
@@ -55,16 +55,16 @@
         <article class="panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">ROADMAP</p>
+              <p class="eyebrow">VEIEN VIDERE</p>
               <h2>Neste steg</h2>
             </div>
           </div>
           <ol class="roadmap">
-            <li><b>25. aug:</b> legg inn Q2 actual og mål v0.3 mot benchmark.</li>
-            <li>Kalibrer modellen én gang og lås Q3-metodikken.</li>
-            <li>Koble D1-database og forecast history.</li>
-            <li>Start timebasert innsamling av vær- og kontraktsdata.</li>
-            <li>Bygg live driver bridge og Q3 nowcast.</li>
+            <li>Fullfør automatisk innlasting av historiske svenske værdata.</li>
+            <li>Bygg normalvær og mål om været er bedre eller dårligere enn normalt.</li>
+            <li>Koble værforholdene til kontraktsvekt og mulige utslag på aktivitet og margin.</li>
+            <li>Fyll signalregisteret med kildebelagte tilleggsarbeider og nye bestillinger.</li>
+            <li><b>Etter Q2:</b> legg inn faktiske tall, kalibrer modellen én gang og lås Q3-metodikken.</li>
           </ol>
         </article>
       </section>
@@ -72,21 +72,38 @@
       <section class="panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">ARCHITECTURE</p>
-            <h2>Tracker-moduler</h2>
+            <p class="eyebrow">OPPBYGGING</p>
+            <h2>Hva trackeren følger</h2>
           </div>
         </div>
         <div class="modules">
-          <div><b>Contracts</b><span>start/slutt, verdi, run-rate, geografi</span></div>
-          <div><b>Weather</b><span>VViS / SMHI / DMI / FMI</span></div>
-          <div><b>Extra works</b><span>bestillinger, offentlige budsjetter, signaler</span></div>
-          <div><b>Nowcast</b><span>revenue, EBITA, consensus gap</span></div>
-          <div><b>History</b><span>ingen overskriving av gamle forecasts</span></div>
-          <div><b>Diagnostics</b><span>modellfeil og driver attribution</span></div>
+          <div><b>Kontrakter</b><span>start og slutt, kontraktsverdi, årlig omsetningstakt og geografi</span></div>
+          <div><b>Vær og arbeidsforhold</b><span>veivær, vanlig vær, nedbør, vind, temperatur og avvik fra normalen</span></div>
+          <div><b>Tilleggsarbeider</b><span>bestillinger, offentlige budsjetter og andre dokumenterte aktivitetssignaler</span></div>
+          <div><b>Løpende estimat</b><span>omsetning, justert EBITA og avvik mot markedets forventninger</span></div>
+          <div><b>Historikk</b><span>gamle estimater beholdes slik at modellen kan etterprøves</span></div>
+          <div><b>Kvalitetskontroll</b><span>manglende data, gamle målinger og feil i datainnhentingen</span></div>
         </div>
       </section>
 
-      <footer>Terranor Tracker · private prototype</footer>
+      <section class="panel" style="margin-top:16px">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">DATAKILDER</p>
+            <h2>Hva værkildene betyr</h2>
+          </div>
+        </div>
+        <div class="modules">
+          <div><b>Veivær fra Trafikverket</b><span>Svenske målestasjoner langs veiene. Gir blant annet veibanetemperatur, lufttemperatur, vind, nedbør og snø. Trafikverkets system kalles VViS.</span></div>
+          <div><b>Vanlige svenske værstasjoner</b><span>Offisielle værmålinger fra Sveriges meteorologiske og hydrologiske institutt, forkortet SMHI. Brukes også til historikk og sammenligning mot normalt vær.</span></div>
+          <div><b>Danske værdata</b><span>Planlagt kilde fra Danmarks Meteorologiske Institut, forkortet DMI, for kontrakter i Danmark.</span></div>
+          <div><b>Finske værdata</b><span>Planlagt kilde fra Finlands meteorologiske institutt, forkortet FMI, for kontrakter i Finland.</span></div>
+          <div><b>Værbasert arbeidsegnethet</b><span>En samlet score for hvor gunstig været er for planlagt drift og vedlikehold. Dette er ikke et direkte omsetningsestimat.</span></div>
+          <div><b>Historisk normal</b><span>Viser om forholdene er bedre eller dårligere enn det som er vanlig på samme sted og samme tid på året.</span></div>
+        </div>
+      </section>
+
+      <footer>Terranor Tracker · privat prototype</footer>
     </main>
     <script src="/app.js" type="module"></script>
   </body>
