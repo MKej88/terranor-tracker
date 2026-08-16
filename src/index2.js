@@ -11,6 +11,7 @@ import {
   reviewActivityCandidate,
   runActivityMonitor,
 } from "./activity.js";
+import { getNordicWeatherStatus, runNordicWeather } from "./nordic.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
@@ -60,6 +61,8 @@ export default {
       "/api/activity/status",
       "/api/activity/candidates",
       "/api/activity/review",
+      "/api/nordic/run",
+      "/api/nordic/status",
     ].includes(url.pathname);
 
     if (!isExtendedApi) return baseResponseWithNorwegianLogin(request, env, url);
@@ -124,6 +127,16 @@ export default {
         return json(await reviewActivityCandidate(env.DB, await request.json()));
       }
 
+      if (url.pathname === "/api/nordic/run") {
+        return json(await runNordicWeather(env.DB, {
+          country: url.searchParams.get("country") || "all",
+        }));
+      }
+
+      if (url.pathname === "/api/nordic/status") {
+        return json(await getNordicWeatherStatus(env.DB));
+      }
+
       if (url.pathname === "/api/contract-bridge") {
         return json(await getContractBridge(env.DB));
       }
@@ -173,6 +186,14 @@ export default {
         console.log(JSON.stringify({ event: "scheduled-climate-archive", cron: controller.cron, ...result }));
       } catch (error) {
         console.error("Automatisk 10-års værgrunnlag feilet", error);
+      }
+
+      // Fase C: danske og finske meteorologiske observasjoner samles hver time.
+      try {
+        const result = await runNordicWeather(env.DB, { country: "all" });
+        console.log(JSON.stringify({ event: "scheduled-nordic-weather", cron: controller.cron, ...result }));
+      } catch (error) {
+        console.error("Automatisk dansk/finsk værinnsamling feilet", error);
       }
 
       // Offentlige ordre-/aktivitetssignaler endrer seg langt sjeldnere enn værdata.
