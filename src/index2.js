@@ -14,6 +14,8 @@ import {
 import { getNordicWeatherStatus, runNordicWeather } from "./nordic.js";
 import { runDmiWeather } from "./dmi.js";
 import { ensureNordicContracts } from "./nordic-contracts.js";
+import { ensureNordicExtraTargets } from "./nordic-extra-targets.js";
+import { getNordicBackfillStatus, runNordicBackfill } from "./nordic-backfill.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
@@ -45,6 +47,11 @@ async function baseResponseWithNorwegianLogin(request, env, url) {
   });
 }
 
+async function ensurePhaseC(db) {
+  await ensureNordicContracts(db);
+  await ensureNordicExtraTargets(db);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -65,6 +72,8 @@ export default {
       "/api/activity/review",
       "/api/nordic/run",
       "/api/nordic/status",
+      "/api/nordic/backfill/run",
+      "/api/nordic/backfill/status",
     ].includes(url.pathname);
 
     if (!isExtendedApi) return baseResponseWithNorwegianLogin(request, env, url);
@@ -130,7 +139,7 @@ export default {
       }
 
       if (url.pathname === "/api/nordic/run") {
-        await ensureNordicContracts(env.DB);
+        await ensurePhaseC(env.DB);
         const country = String(url.searchParams.get("country") || "all").toLowerCase();
         if (["denmark", "danmark", "dmi"].includes(country)) {
           const DMI = await runDmiWeather(env.DB);
@@ -154,8 +163,21 @@ export default {
       }
 
       if (url.pathname === "/api/nordic/status") {
-        await ensureNordicContracts(env.DB);
+        await ensurePhaseC(env.DB);
         return json(await getNordicWeatherStatus(env.DB));
+      }
+
+      if (url.pathname === "/api/nordic/backfill/run") {
+        await ensurePhaseC(env.DB);
+        return json(await runNordicBackfill(env.DB, {
+          days: url.searchParams.get("days") || 60,
+          maxTasks: url.searchParams.get("tasks") || 2,
+        }));
+      }
+
+      if (url.pathname === "/api/nordic/backfill/status") {
+        await ensurePhaseC(env.DB);
+        return json(await getNordicBackfillStatus(env.DB, url.searchParams.get("days") || 60));
       }
 
       if (url.pathname === "/api/contract-bridge") {
@@ -210,12 +232,20 @@ export default {
       }
 
       try {
-        await ensureNordicContracts(env.DB);
+        await ensurePhaseC(env.DB);
         const DMI = await runDmiWeather(env.DB);
         const finland = await runNordicWeather(env.DB, { country: "Finland" });
         console.log(JSON.stringify({ event: "scheduled-nordic-weather", cron: controller.cron, DMI, FMI: finland.sources?.FMI }));
       } catch (error) {
         console.error("Automatisk dansk/finsk værinnsamling feilet", error);
+      }
+
+      try {
+        await ensurePhaseC(env.DB);
+        const result = await runNordicBackfill(env.DB, { days: 60, maxTasks: 2 });
+        console.log(JSON.stringify({ event: "scheduled-nordic-backfill", cron: controller.cron, ...result }));
+      } catch (error) {
+        console.error("Automatisk dansk/finsk 60-dagershistorikk feilet", error);
       }
 
       const hourUtc = new Date().getUTCHours();
