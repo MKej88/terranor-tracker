@@ -6,6 +6,7 @@ import {
   listWeatherContracts,
   seedWeatherAnchors,
 } from "./weather.js";
+import { probeTrafikverket } from "./vvis.js";
 
 const json = (data, init = {}) =>
   new Response(JSON.stringify(data, null, 2), {
@@ -263,6 +264,17 @@ export default {
       }
     }
 
+    if (url.pathname === "/api/vvis/probe") {
+      if (!env.TRAFIKVERKET_API_KEY) {
+        return json({ ok: false, error: "TRAFIKVERKET_API_KEY is not configured" }, { status: 503 });
+      }
+      try {
+        return json(await probeTrafikverket(env.TRAFIKVERKET_API_KEY));
+      } catch (error) {
+        return json({ ok: false, error: String(error?.message || error) }, { status: 500 });
+      }
+    }
+
     if (url.pathname === "/api/forecast") {
       return json(seedForecast);
     }
@@ -284,7 +296,7 @@ export default {
         q3ReportDate: "2026-11-10",
         dataCollection: {
           smhi: weather?.latestRun?.status === "ok" ? "active" : "ready",
-          trafficWeather: env.TRAFIKVERKET_API_KEY ? "key configured; collector next" : "awaiting API key",
+          trafficWeather: env.TRAFIKVERKET_API_KEY ? "key configured; probe ready" : "awaiting API key",
           dmi: "planned",
           fmi: "planned",
           contracts: "seeded",
