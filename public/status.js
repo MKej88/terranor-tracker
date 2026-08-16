@@ -147,11 +147,41 @@ function renderBackfill(backfill) {
   const total = Number(backfill?.stations || 0);
   const pct = total ? Math.round(100 * done / total) : 0;
   document.querySelector("#backfill-count").textContent = total ? `${done} / ${total}` : "—";
-  document.querySelector("#backfill-text").textContent = backfill?.complete ? "Historikken er ferdig lastet inn" : `${pct} % ferdig`;
+  document.querySelector("#backfill-text").textContent = backfill?.complete ? "60-dagershistorikken er ferdig" : `${pct} % ferdig`;
   document.querySelector("#backfill-progress").style.width = `${pct}%`;
   document.querySelector("#backfill-detail").textContent = backfill?.complete
     ? `Alle ${total} primære svenske værstasjoner har historikk for de siste ${backfill.days} dagene.`
     : `${done} av ${total} primære svenske værstasjoner har nok historiske målinger. Resten fylles automatisk inn litt etter litt.`;
+}
+
+function renderClimate(climate) {
+  const pct = Number(climate?.progressPct || 0);
+  document.querySelector("#climate-progress").style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  const ready = Number(climate?.stationsFullyReady || 0);
+  const stations = Number(climate?.stations || 0);
+  document.querySelector("#climate-detail").textContent = stations
+    ? `${ready} av ${stations} værstasjoner har komplett 10-årig sammenligningsgrunnlag for temperatur, vind og nedbør. Totalt er ${pct} % av arkivjobbene ferdige.`
+    : "Venter på at værstasjonene skal bli registrert.";
+
+  const latest = climate?.latestTask;
+  const rows = [
+    `<div class="status-row"><span>Sammenligningsperiode</span><b>${climate?.baselineLabel || "—"}</b></div>`,
+    `<div class="status-row"><span>Ferdige arkivjobber</span><b>${formatNumber(climate?.finishedTasks)} / ${formatNumber(climate?.totalTasks)}</b></div>`,
+    `<div class="status-row"><span>Feil som må prøves igjen</span><b class="${Number(climate?.errorTasks || 0) ? "text-warn" : "text-good"}">${formatNumber(climate?.errorTasks || 0)}</b></div>`,
+  ];
+  if (latest) rows.push(`<div class="status-row"><span>Sist behandlet</span><b>${latest.station_name || latest.station_id} · ${latest.parameter_name}</b></div>`);
+  document.querySelector("#climate-list").innerHTML = rows.join("");
+}
+
+function renderGeography(geography) {
+  const rows = [
+    `<div class="status-row"><span>Gjennomsnittlig geografisk dekning</span><b>${formatNumber(geography?.averageCoveragePct)} %</b></div>`,
+    `<div class="status-row"><span>Kontrakter med god flerstasjonsdekning</span><b>${formatNumber(geography?.contractsWithGoodCoverage)} / ${formatNumber(geography?.contracts)}</b></div>`,
+    `<div class="status-row"><span>Kontrakter som bør forbedres</span><b class="${Number(geography?.contractsNeedingImprovement || 0) ? "text-warn" : "text-good"}">${formatNumber(geography?.contractsNeedingImprovement || 0)}</b></div>`,
+    `<div class="status-row"><span>Geografiversjon</span><b>${geography?.geographyVersion || "—"}</b></div>`,
+  ];
+  document.querySelector("#geography-list").innerHTML = rows.join("");
+  document.querySelector("#geography-note").textContent = geography?.limitation || "";
 }
 
 function renderModelStatus(status, signals) {
@@ -187,12 +217,14 @@ async function loadStatus() {
   button.textContent = "Oppdaterer…";
 
   try {
-    const [quality, backfill, db, status, signals] = await Promise.all([
+    const [quality, backfill, db, status, signals, climate, geography] = await Promise.all([
       getJson("/api/data-quality"),
       getJson("/api/backfill/smhi/status"),
       getJson("/api/db-status"),
       getJson("/api/status"),
       getJson("/api/signals/summary"),
+      getJson("/api/climate/status"),
+      getJson("/api/geography"),
     ]);
 
     setOverall(quality);
@@ -202,6 +234,8 @@ async function loadStatus() {
     renderChecks(quality);
     renderRanges(quality);
     renderBackfill(backfill);
+    renderClimate(climate);
+    renderGeography(geography);
     renderModelStatus(status, signals);
     renderProblems(quality);
     document.querySelector("#updated-line").textContent = `Siden ble oppdatert ${formatTime(new Date().toISOString())}. Automatisk datainnhenting kjører hver time.`;
