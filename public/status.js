@@ -58,14 +58,6 @@ const modelValues = {
   "awaiting API key": "venter på tilgang",
 };
 
-const activityTypeName = (type) => ({
-  utlost_option: "Utløst opsjon",
-  tilleggsarbeid: "Tilleggsarbeid",
-  ny_bestilling: "Ny bestilling",
-  ny_kontrakt: "Ny hovedkontrakt",
-  annen_aktivitet: "Annen aktivitet",
-}[type] || String(type || "Ukjent"));
-
 async function getJson(url) {
   const response = await fetch(url, { cache: "no-store" });
   const data = await response.json();
@@ -99,8 +91,7 @@ function renderCollectionRuns(quality) {
     rows.push(`
       <div class="status-row"><span>${sourceName(source)}</span><b>${run?.status === "ok" ? "OK" : "Ikke OK"}</b></div>
       <div class="status-row sub-row"><span>Sist hentet</span><b>${run ? `${formatTime(run.finished_at)} · ${formatAge(run.age_minutes)}` : "—"}</b></div>
-      <div class="status-row sub-row"><span>Målestasjoner i siste kjøring</span><b>${formatNumber(run?.stations_fetched)}</b></div>
-      <div class="status-row sub-row"><span>Målinger skrevet i siste kjøring</span><b>${formatNumber(run?.observations_written)}</b></div>
+      <div class="status-row sub-row"><span>Målinger i siste kjøring</span><b>${formatNumber(run?.observations_written)}</b></div>
     `);
   }
   document.querySelector("#collection-list").innerHTML = rows.join("");
@@ -134,7 +125,7 @@ function renderBackfill(backfill) {
   document.querySelector("#backfill-progress").style.width = `${pct}%`;
   document.querySelector("#backfill-detail").textContent = backfill?.complete
     ? `Alle ${total} primære svenske værstasjoner har historikk for de siste ${backfill.days} dagene.`
-    : `${done} av ${total} primære svenske værstasjoner har nok historiske målinger. Resten fylles automatisk inn litt etter litt.`;
+    : `${done} av ${total} primære svenske værstasjoner har nok historiske målinger. Resten fylles automatisk inn.`;
 }
 
 function renderClimate(climate) {
@@ -143,7 +134,7 @@ function renderClimate(climate) {
   const ready = Number(climate?.stationsFullyReady || 0);
   const stations = Number(climate?.stations || 0);
   document.querySelector("#climate-detail").textContent = stations
-    ? `${ready} av ${stations} værstasjoner har komplett 10-årig sammenligningsgrunnlag for temperatur, vind og nedbør. Totalt er ${pct} % av arkivjobbene ferdige.`
+    ? `${ready} av ${stations} værstasjoner har komplett 10-årig sammenligningsgrunnlag. Totalt er ${pct} % av arkivjobbene ferdige.`
     : "Venter på at værstasjonene skal bli registrert.";
   const latest = climate?.latestTask;
   const rows = [
@@ -158,35 +149,23 @@ function renderClimate(climate) {
 function renderGeography(geography) {
   document.querySelector("#geography-list").innerHTML = [
     `<div class="status-row"><span>Gjennomsnittlig geografisk dekning</span><b>${formatNumber(geography?.averageCoveragePct)} %</b></div>`,
-    `<div class="status-row"><span>Kontrakter med god flerstasjonsdekning</span><b>${formatNumber(geography?.contractsWithGoodCoverage)} / ${formatNumber(geography?.contracts)}</b></div>`,
-    `<div class="status-row"><span>Kontrakter som bør forbedres</span><b class="${Number(geography?.contractsNeedingImprovement || 0) ? "text-warn" : "text-good"}">${formatNumber(geography?.contractsNeedingImprovement || 0)}</b></div>`,
-    `<div class="status-row"><span>Geografiversjon</span><b>${geography?.geographyVersion || "—"}</b></div>`,
+    `<div class="status-row"><span>God flerstasjonsdekning</span><b>${formatNumber(geography?.contractsWithGoodCoverage)} / ${formatNumber(geography?.contracts)}</b></div>`,
+    `<div class="status-row"><span>Bør forbedres</span><b class="${Number(geography?.contractsNeedingImprovement || 0) ? "text-warn" : "text-good"}">${formatNumber(geography?.contractsNeedingImprovement || 0)}</b></div>`,
   ].join("");
   document.querySelector("#geography-note").textContent = geography?.limitation || "";
 }
 
-function renderActivity(activity) {
-  const run = activity?.latestRun;
+function renderPhaseBSummary(activity) {
   const sources = activity?.monitoredSources || [];
   const active = sources.filter((x) => x.status === "aktiv").length;
-  const next = sources.filter((x) => x.status !== "aktiv").length;
-  document.querySelector("#activity-source-list").innerHTML = [
-    `<div class="status-row"><span>Aktive kilder</span><b>${active}</b></div>`,
-    `<div class="status-row"><span>Kilder som skal kobles på videre</span><b>${next}</b></div>`,
-    `<div class="status-row"><span>Automatisk kontroll</span><b>hver ${formatNumber(activity?.automaticCheckEveryHours)}. time</b></div>`,
-    `<div class="status-row"><span>Siste kontroll</span><b>${run ? `${formatTime(run.finished_at)} · ${run.status === "ok" ? "OK" : "feil"}` : "ikke kjørt ennå"}</b></div>`,
-    `<div class="status-row"><span>Nye kandidater til vurdering</span><b class="${Number(activity?.candidates?.new || 0) ? "text-warn" : "text-good"}">${formatNumber(activity?.candidates?.new || 0)}</b></div>`,
-  ].join("");
-  document.querySelector("#activity-note").textContent = activity?.rules?.accountingRule || "Ordre- og aktivitetssignaler påvirker ikke resultatestimatet automatisk.";
-
-  const signals = activity?.recentHighRelevanceSignals || [];
-  document.querySelector("#activity-signal-list").innerHTML = signals.length
-    ? signals.slice(0, 6).map((row) => `
-      <div class="status-row">
-        <span>${activityTypeName(row.signal_type)} · ${row.title}</span>
-        <b>${Number.isFinite(Number(row.value)) ? `${formatNumber(row.value)} MSEK` : "verdi ukjent"}</b>
-      </div>`).join("")
-    : `<div class="status-row"><span>Ingen høyt prioriterte signaler registrert ennå</span><b>—</b></div>`;
+  const newCandidates = Number(activity?.candidates?.new || 0);
+  const relevantTypes = new Set(["utlost_option", "tilleggsarbeid", "ny_bestilling"]);
+  const signalCount = (activity?.signalTypes || [])
+    .filter((row) => relevantTypes.has(row.signal_type))
+    .reduce((sum, row) => sum + Number(row.count || 0), 0);
+  document.querySelector("#phase-b-summary").innerHTML = `
+    <div class="status-row"><span>${active} aktive kilder · ${newCandidates} nye funn</span><b>${signalCount} registrerte signaler</b></div>
+  `;
 }
 
 function renderModelStatus(status, signals) {
@@ -237,7 +216,7 @@ async function loadStatus() {
     renderBackfill(backfill);
     renderClimate(climate);
     renderGeography(geography);
-    renderActivity(activity);
+    renderPhaseBSummary(activity);
     renderModelStatus(status, signals);
     renderProblems(quality);
     document.querySelector("#updated-line").textContent = `Siden ble oppdatert ${formatTime(new Date().toISOString())}. Automatisk datainnhenting kjører hver time.`;
