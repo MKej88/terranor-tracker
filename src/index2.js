@@ -11,8 +11,9 @@ import {
   reviewActivityCandidate,
   runActivityMonitor,
 } from "./activity.js";
-import { getNordicWeatherStatus, runNordicWeather } from "./nordic.js";
+import { getNordicWeatherStatus } from "./nordic.js";
 import { runDmiWeather } from "./dmi.js";
+import { runFmiWeather } from "./fmi.js";
 import { ensureNordicContracts } from "./nordic-contracts.js";
 import { ensureNordicExtraTargets } from "./nordic-extra-targets.js";
 import { getNordicBackfillStatus, runNordicBackfill } from "./nordic-backfill.js";
@@ -146,14 +147,16 @@ export default {
           return json({ ok: DMI.ok, phase: "C", sources: { DMI }, note: "Fase C samler meteorologiske observasjoner for kjente danske og finske lokasjoner. Været påvirker ikke resultatestimatet automatisk." });
         }
         if (["finland", "fmi"].includes(country)) {
-          return json(await runNordicWeather(env.DB, { country: "Finland" }));
+          const FMI = await runFmiWeather(env.DB);
+          return json({ ok: FMI.ok, phase: "C", sources: { FMI }, note: "Fase C samler meteorologiske observasjoner for kjente danske og finske lokasjoner. Været påvirker ikke resultatestimatet automatisk." });
         }
         if (country === "all") {
-          const DMI = await runDmiWeather(env.DB);
-          const finland = await runNordicWeather(env.DB, { country: "Finland" });
-          const FMI = finland.sources?.FMI;
+          const [DMI, FMI] = await Promise.all([
+            runDmiWeather(env.DB),
+            runFmiWeather(env.DB),
+          ]);
           return json({
-            ok: Boolean(DMI.ok && FMI?.ok),
+            ok: Boolean(DMI.ok && FMI.ok),
             phase: "C",
             sources: { DMI, FMI },
             note: "Fase C samler meteorologiske observasjoner for kjente danske og finske lokasjoner. Været påvirker ikke resultatestimatet automatisk.",
@@ -233,9 +236,11 @@ export default {
 
       try {
         await ensurePhaseC(env.DB);
-        const DMI = await runDmiWeather(env.DB);
-        const finland = await runNordicWeather(env.DB, { country: "Finland" });
-        console.log(JSON.stringify({ event: "scheduled-nordic-weather", cron: controller.cron, DMI, FMI: finland.sources?.FMI }));
+        const [DMI, FMI] = await Promise.all([
+          runDmiWeather(env.DB),
+          runFmiWeather(env.DB),
+        ]);
+        console.log(JSON.stringify({ event: "scheduled-nordic-weather", cron: controller.cron, DMI, FMI }));
       } catch (error) {
         console.error("Automatisk dansk/finsk værinnsamling feilet", error);
       }
