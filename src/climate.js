@@ -1,6 +1,8 @@
 const SMHI_BASE = "https://opendata-download-metobs.smhi.se/api/version/1.0";
 const BASELINE_START_YEAR = 2016;
 const BASELINE_END_YEAR = 2025;
+const Q3_START = Date.UTC(2026, 6, 1, 0, 0, 0);
+const Q3_END = Date.UTC(2026, 8, 30, 23, 59, 59);
 
 const PARAMETERS = [
   { id: 1, key: "air_temperature", name: "Lufttemperatur", eventThreshold: 30 },
@@ -74,6 +76,19 @@ function unquote(value) {
   const text = String(value ?? "").trim();
   if (text.startsWith('"') && text.endsWith('"')) return text.slice(1, -1).replaceAll('""', '"').trim();
   return text;
+}
+
+function q3Weight(startText, endText, annualRunRate) {
+  const annual = Number(annualRunRate);
+  if (!Number.isFinite(annual) || annual <= 0) return null;
+  const start = startText ? Date.parse(`${startText}T00:00:00Z`) : Q3_START;
+  const end = endText ? Date.parse(`${endText}T23:59:59Z`) : Q3_END;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const overlapStart = Math.max(start, Q3_START);
+  const overlapEnd = Math.min(end, Q3_END);
+  if (overlapEnd < overlapStart) return null;
+  const days = Math.floor((overlapEnd - overlapStart) / 86400000) + 1;
+  return annual * days / 365.25;
 }
 
 function parseCorrectedArchiveCsv(text, parameter) {
@@ -329,7 +344,11 @@ export async function getClimateStatus(db) {
 }
 
 function actualMetric(rows, parameterId) {
-  const values = rows.map((r) => Number(r.value)).filter(Number.isFinite);
+  const values = rows
+    .map((r) => r.value)
+    .filter((value) => value !== null && value !== undefined && value !== "")
+    .map(Number)
+    .filter(Number.isFinite);
   if (!values.length) return null;
   const parameter = PARAMETERS.find((p) => p.id === parameterId);
   const events = values.filter((v) => v >= parameter.eventThreshold).length;
@@ -373,7 +392,8 @@ export async function getClimateComparison(db, days = 7) {
   if (!db) throw new Error("D1-bindingen DB mangler");
   await ensureClimateSchema(db);
   const safeDays = clampInt(days, 7, 1, 30);
-  const links = await db.prepare(`SELECT c.id AS contract_id, c.name AS contract_name, c.annual_run_rate_msek,
+  const links = await db.prepare(`SELECT c.id AS contract_id, c.name AS contract_name,
+      c.start_date, c.end_date, c.annual_run_rate_msek,
       l.station_id, l.station_name, l.distance_km
     FROM contracts c
     JOIN weather_station_links l ON l.contract_id=c.id
@@ -392,12 +412,14 @@ export async function getClimateComparison(db, days = 7) {
     const anomalyPoints = [precipDelta, windDelta, heatDelta].every((x) => x !== null)
       ? -45 * precipDelta - 20 * windDelta - 8 * heatDelta
       : null;
+    const weight = q3Weight(link.start_date, link.end_date, link.annual_run_rate_msek);
     rows.push({
       contract_id: Number(link.contract_id),
       contract_name: link.contract_name,
       station_id: String(link.station_id),
       station_name: link.station_name,
       distance_km: link.distance_km,
+      q3_weight_msek: round(weight, 3),
       ready: anomalyPoints !== null,
       workability_anomaly_points: round(anomalyPoints, 1),
       air_temperature_delta_c: actual[1] && baseline[1] ? round(actual[1].avg - baseline[1].avg, 1) : null,
@@ -409,22 +431,11 @@ export async function getClimateComparison(db, days = 7) {
   }
 
   const ready = rows.filter((x) => Number.isFinite(x.workability_anomaly_points));
-  const weighted = ready.filter((x) => {
-    const source = (links?.results || []).find((l) => Number(l.contract_id) === x.contract_id);
-    return Number(source?.annual_run_rate_msek) > 0;
-  });
-  let sweden = null;
-  if (weighted.length) {
-    let numerator = 0;
-    let denominator = 0;
-    for (const row of weighted) {
-      const source = (links?.results || []).find((l) => Number(l.contract_id) === row.contract_id);
-      const weight = Number(source?.annual_run_rate_msek || 0);
-      numerator += row.workability_anomaly_points * weight;
-      denominator += weight;
-    }
-    sweden = denominator ? round(numerator / denominator, 1) : null;
-  }
+  const weighted = ready.filter((x) => Number.isFinite(x.q3_weight_msek) && x.q3_weight_msek > 0);
+  const totalWeight = weighted.reduce((sum, row) => sum + row.q3_weight_msek, 0);
+  const sweden = totalWeight
+    ? round(weighted.reduce((sum, row) => sum + row.workability_anomaly_points * row.q3_weight_msek, 0) / totalWeight, 1)
+    : null;
 
   return {
     days: safeDays,
@@ -432,6 +443,9 @@ export async function getClimateComparison(db, days = 7) {
     contractsReady: ready.length,
     contractsTotal: rows.length,
     swedenWorkabilityAnomalyPoints: sweden,
+    weightedCoveragePct: rows.reduce((sum, row) => sum + (Number(row.q3_weight_msek) || 0), 0)
+      ? round(100 * totalWeight / rows.reduce((sum, row) => sum + (Number(row.q3_weight_msek) || 0), 0), 1)
+      : 0,
     interpretation: "Positivt tall betyr at vanlig vær ved SMHI-stasjonen har vært mer arbeidsvennlig enn 10-årsgrunnlaget; negativt tall betyr mindre arbeidsvennlig. Veibaneforhold fra Trafikverket inngår ikke i denne historiske sammenligningen.",
     contracts: rows,
   };
