@@ -15,11 +15,7 @@ const formatTime = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("nb-NO", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
   }).format(date);
 };
 
@@ -62,6 +58,14 @@ const modelValues = {
   "awaiting API key": "venter på tilgang",
 };
 
+const activityTypeName = (type) => ({
+  utlost_option: "Utløst opsjon",
+  tilleggsarbeid: "Tilleggsarbeid",
+  ny_bestilling: "Ny bestilling",
+  ny_kontrakt: "Ny hovedkontrakt",
+  annen_aktivitet: "Annen aktivitet",
+}[type] || String(type || "Ukjent"));
+
 async function getJson(url) {
   const response = await fetch(url, { cache: "no-store" });
   const data = await response.json();
@@ -74,7 +78,7 @@ function setOverall(quality) {
   const score = Number(quality?.score);
   const status = quality?.status;
   document.querySelector("#quality-score").textContent = Number.isFinite(score) ? `${score} %` : "—";
-
+  pill.classList.remove("ok");
   if (status === "healthy") {
     pill.textContent = "Alt ser bra ut";
     pill.classList.add("ok");
@@ -93,22 +97,10 @@ function renderCollectionRuns(quality) {
   for (const source of ["SMHI", "VVIS"]) {
     const run = quality?.collection_runs?.[source];
     rows.push(`
-      <div class="status-row">
-        <span>${sourceName(source)}</span>
-        <b>${run?.status === "ok" ? "OK" : "Ikke OK"}</b>
-      </div>
-      <div class="status-row sub-row">
-        <span>Sist hentet</span>
-        <b>${run ? `${formatTime(run.finished_at)} · ${formatAge(run.age_minutes)}` : "—"}</b>
-      </div>
-      <div class="status-row sub-row">
-        <span>Målestasjoner i siste kjøring</span>
-        <b>${formatNumber(run?.stations_fetched)}</b>
-      </div>
-      <div class="status-row sub-row">
-        <span>Målinger skrevet i siste kjøring</span>
-        <b>${formatNumber(run?.observations_written)}</b>
-      </div>
+      <div class="status-row"><span>${sourceName(source)}</span><b>${run?.status === "ok" ? "OK" : "Ikke OK"}</b></div>
+      <div class="status-row sub-row"><span>Sist hentet</span><b>${run ? `${formatTime(run.finished_at)} · ${formatAge(run.age_minutes)}` : "—"}</b></div>
+      <div class="status-row sub-row"><span>Målestasjoner i siste kjøring</span><b>${formatNumber(run?.stations_fetched)}</b></div>
+      <div class="status-row sub-row"><span>Målinger skrevet i siste kjøring</span><b>${formatNumber(run?.observations_written)}</b></div>
     `);
   }
   document.querySelector("#collection-list").innerHTML = rows.join("");
@@ -116,13 +108,9 @@ function renderCollectionRuns(quality) {
 
 function renderChecks(quality) {
   const checks = quality?.checks || {};
-  document.querySelector("#check-list").innerHTML = Object.entries(checks)
-    .map(([key, value]) => `
-      <div class="status-row">
-        <span>${checkLabels[key] || key}</span>
-        <b class="${value ? "text-good" : "text-warn"}">${yesNo(value)}</b>
-      </div>
-    `).join("");
+  document.querySelector("#check-list").innerHTML = Object.entries(checks).map(([key, value]) => `
+    <div class="status-row"><span>${checkLabels[key] || key}</span><b class="${value ? "text-good" : "text-warn"}">${yesNo(value)}</b></div>
+  `).join("");
 }
 
 function renderRanges(quality) {
@@ -133,12 +121,7 @@ function renderRanges(quality) {
     return;
   }
   body.innerHTML = ranges.map((row) => `
-    <tr>
-      <td>${sourceName(row.source)}</td>
-      <td>${formatNumber(row.count)}</td>
-      <td>${formatTime(row.earliest)}</td>
-      <td>${formatTime(row.latest)}</td>
-    </tr>
+    <tr><td>${sourceName(row.source)}</td><td>${formatNumber(row.count)}</td><td>${formatTime(row.earliest)}</td><td>${formatTime(row.latest)}</td></tr>
   `).join("");
 }
 
@@ -162,7 +145,6 @@ function renderClimate(climate) {
   document.querySelector("#climate-detail").textContent = stations
     ? `${ready} av ${stations} værstasjoner har komplett 10-årig sammenligningsgrunnlag for temperatur, vind og nedbør. Totalt er ${pct} % av arkivjobbene ferdige.`
     : "Venter på at værstasjonene skal bli registrert.";
-
   const latest = climate?.latestTask;
   const rows = [
     `<div class="status-row"><span>Sammenligningsperiode</span><b>${climate?.baselineLabel || "—"}</b></div>`,
@@ -174,14 +156,37 @@ function renderClimate(climate) {
 }
 
 function renderGeography(geography) {
-  const rows = [
+  document.querySelector("#geography-list").innerHTML = [
     `<div class="status-row"><span>Gjennomsnittlig geografisk dekning</span><b>${formatNumber(geography?.averageCoveragePct)} %</b></div>`,
     `<div class="status-row"><span>Kontrakter med god flerstasjonsdekning</span><b>${formatNumber(geography?.contractsWithGoodCoverage)} / ${formatNumber(geography?.contracts)}</b></div>`,
     `<div class="status-row"><span>Kontrakter som bør forbedres</span><b class="${Number(geography?.contractsNeedingImprovement || 0) ? "text-warn" : "text-good"}">${formatNumber(geography?.contractsNeedingImprovement || 0)}</b></div>`,
     `<div class="status-row"><span>Geografiversjon</span><b>${geography?.geographyVersion || "—"}</b></div>`,
-  ];
-  document.querySelector("#geography-list").innerHTML = rows.join("");
+  ].join("");
   document.querySelector("#geography-note").textContent = geography?.limitation || "";
+}
+
+function renderActivity(activity) {
+  const run = activity?.latestRun;
+  const sources = activity?.monitoredSources || [];
+  const active = sources.filter((x) => x.status === "aktiv").length;
+  const next = sources.filter((x) => x.status !== "aktiv").length;
+  document.querySelector("#activity-source-list").innerHTML = [
+    `<div class="status-row"><span>Aktive kilder</span><b>${active}</b></div>`,
+    `<div class="status-row"><span>Kilder som skal kobles på videre</span><b>${next}</b></div>`,
+    `<div class="status-row"><span>Automatisk kontroll</span><b>hver ${formatNumber(activity?.automaticCheckEveryHours)}. time</b></div>`,
+    `<div class="status-row"><span>Siste kontroll</span><b>${run ? `${formatTime(run.finished_at)} · ${run.status === "ok" ? "OK" : "feil"}` : "ikke kjørt ennå"}</b></div>`,
+    `<div class="status-row"><span>Nye kandidater til vurdering</span><b class="${Number(activity?.candidates?.new || 0) ? "text-warn" : "text-good"}">${formatNumber(activity?.candidates?.new || 0)}</b></div>`,
+  ].join("");
+  document.querySelector("#activity-note").textContent = activity?.rules?.accountingRule || "Ordre- og aktivitetssignaler påvirker ikke resultatestimatet automatisk.";
+
+  const signals = activity?.recentHighRelevanceSignals || [];
+  document.querySelector("#activity-signal-list").innerHTML = signals.length
+    ? signals.slice(0, 6).map((row) => `
+      <div class="status-row">
+        <span>${activityTypeName(row.signal_type)} · ${row.title}</span>
+        <b>${Number.isFinite(Number(row.value)) ? `${formatNumber(row.value)} MSEK` : "verdi ukjent"}</b>
+      </div>`).join("")
+    : `<div class="status-row"><span>Ingen høyt prioriterte signaler registrert ennå</span><b>—</b></div>`;
 }
 
 function renderModelStatus(status, signals) {
@@ -204,10 +209,7 @@ function renderProblems(quality) {
     return;
   }
   box.innerHTML = stale.map((row) => `
-    <div class="problem-row">
-      <div><b>${row.contract_name || "Ukjent kontrakt"}</b><span>${sourceName(row.source)} · ${row.station_name || row.station_id}</span></div>
-      <strong>${formatAge(row.age_minutes)}</strong>
-    </div>
+    <div class="problem-row"><div><b>${row.contract_name || "Ukjent kontrakt"}</b><span>${sourceName(row.source)} · ${row.station_name || row.station_id}</span></div><strong>${formatAge(row.age_minutes)}</strong></div>
   `).join("");
 }
 
@@ -215,9 +217,8 @@ async function loadStatus() {
   const button = document.querySelector("#refresh-button");
   button.disabled = true;
   button.textContent = "Oppdaterer…";
-
   try {
-    const [quality, backfill, db, status, signals, climate, geography] = await Promise.all([
+    const [quality, backfill, db, status, signals, climate, geography, activity] = await Promise.all([
       getJson("/api/data-quality"),
       getJson("/api/backfill/smhi/status"),
       getJson("/api/db-status"),
@@ -225,8 +226,8 @@ async function loadStatus() {
       getJson("/api/signals/summary"),
       getJson("/api/climate/status"),
       getJson("/api/geography"),
+      getJson("/api/activity/status"),
     ]);
-
     setOverall(quality);
     document.querySelector("#contract-count").textContent = formatNumber(db?.tables?.contracts);
     document.querySelector("#weather-count").textContent = formatNumber(db?.tables?.weatherObservations);
@@ -236,6 +237,7 @@ async function loadStatus() {
     renderBackfill(backfill);
     renderClimate(climate);
     renderGeography(geography);
+    renderActivity(activity);
     renderModelStatus(status, signals);
     renderProblems(quality);
     document.querySelector("#updated-line").textContent = `Siden ble oppdatert ${formatTime(new Date().toISOString())}. Automatisk datainnhenting kjører hver time.`;
