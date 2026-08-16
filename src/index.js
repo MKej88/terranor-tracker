@@ -1,3 +1,5 @@
+import { ensureSchema, getDbStatus } from "./db.js";
+
 const json = (data, init = {}) =>
   new Response(JSON.stringify(data, null, 2), {
     ...init,
@@ -157,6 +159,7 @@ export default {
         ok: true,
         service: "terranor-tracker",
         authConfigured: Boolean(env.APP_PASSWORD && env.SESSION_SECRET),
+        dbConfigured: Boolean(env.DB),
         timestamp: new Date().toISOString(),
       });
     }
@@ -176,6 +179,8 @@ export default {
       const password = String(form.get("password") || "");
       const valid = await secureEqual(password, env.APP_PASSWORD);
       if (!valid) return html(loginPage("Feil passord."), { status: 401 });
+
+      if (env.DB) await ensureSchema(env.DB);
 
       const now = Math.floor(Date.now() / 1000);
       const token = await signSession({ iat: now, exp: now + SESSION_TTL_SECONDS }, env.SESSION_SECRET);
@@ -197,6 +202,14 @@ export default {
       return redirect("/login");
     }
 
+    if (url.pathname === "/api/db-status") {
+      try {
+        return json(await getDbStatus(env.DB));
+      } catch (error) {
+        return json({ configured: Boolean(env.DB), error: String(error?.message || error) }, { status: 500 });
+      }
+    }
+
     if (url.pathname === "/api/forecast") {
       return json(seedForecast);
     }
@@ -213,7 +226,7 @@ export default {
           dmi: "planned",
           fmi: "planned",
           contracts: "seed data next",
-          forecastHistory: "database next",
+          forecastHistory: "database connected",
         },
       });
     }
@@ -226,10 +239,19 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
+    if (env.DB) {
+      try {
+        await ensureSchema(env.DB);
+      } catch (error) {
+        console.error("D1 schema initialization failed", error);
+      }
+    }
+
     console.log(
       JSON.stringify({
         event: "scheduled-collection-placeholder",
         cron: controller.cron,
+        dbConfigured: Boolean(env.DB),
         scheduledTime: new Date(controller.scheduledTime).toISOString(),
       }),
     );
