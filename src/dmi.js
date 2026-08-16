@@ -88,8 +88,9 @@ async function fetchDmiParameter(stationId, parameterId, startIso, endIso) {
     limit: "500",
     stationId: String(stationId),
     parameterId,
-    sortorder: "observed,ASC",
   });
+  // DMI documents sortorder=observed,DESC for the observation collection. We do not
+  // need server-side sorting here, so omit sortorder entirely and sort/merge by timestamp locally.
   const response = await fetch(`${DMI_OBS_URL}?${params.toString()}`, {
     headers: { "user-agent": "Terranor-Tracker/0.8" },
   });
@@ -151,7 +152,8 @@ async function collectTarget(db, target, station) {
   }
 
   let written = 0;
-  for (const row of rows.values()) written += await upsertObservation(db, row);
+  const orderedRows = [...rows.values()].sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at));
+  for (const row of orderedRows) written += await upsertObservation(db, row);
   return { written, rows: rows.size, parameterCounts };
 }
 
