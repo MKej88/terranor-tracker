@@ -5,6 +5,12 @@ import { addSignal, getSignalSummary, listSignals } from "./signals.js";
 import { getDataQuality } from "./quality.js";
 import { getClimateComparison, getClimateStatus, runClimateArchive } from "./climate.js";
 import { getGeographyStatus } from "./geography.js";
+import {
+  getActivityStatus,
+  listActivityCandidates,
+  reviewActivityCandidate,
+  runActivityMonitor,
+} from "./activity.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
@@ -50,6 +56,10 @@ export default {
       "/api/climate/status",
       "/api/climate/comparison",
       "/api/geography",
+      "/api/activity/run",
+      "/api/activity/status",
+      "/api/activity/candidates",
+      "/api/activity/review",
     ].includes(url.pathname);
 
     if (!isExtendedApi) return baseResponseWithNorwegianLogin(request, env, url);
@@ -87,6 +97,31 @@ export default {
 
       if (url.pathname === "/api/geography") {
         return json(await getGeographyStatus(env.DB));
+      }
+
+      if (url.pathname === "/api/activity/run") {
+        return json(await runActivityMonitor(env.DB, {
+          maxItems: url.searchParams.get("items") || 4,
+        }));
+      }
+
+      if (url.pathname === "/api/activity/status") {
+        return json(await getActivityStatus(env.DB));
+      }
+
+      if (url.pathname === "/api/activity/candidates") {
+        return json(await listActivityCandidates(env.DB, {
+          limit: url.searchParams.get("limit") || 50,
+          status: url.searchParams.get("status") || null,
+        }));
+      }
+
+      if (url.pathname === "/api/activity/review" && request.method === "POST") {
+        const contentType = request.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          return json({ ok: false, error: "Content-Type må være application/json" }, { status: 415 });
+        }
+        return json(await reviewActivityCandidate(env.DB, await request.json()));
       }
 
       if (url.pathname === "/api/contract-bridge") {
@@ -138,6 +173,18 @@ export default {
         console.log(JSON.stringify({ event: "scheduled-climate-archive", cron: controller.cron, ...result }));
       } catch (error) {
         console.error("Automatisk 10-års værgrunnlag feilet", error);
+      }
+
+      // Offentlige ordre-/aktivitetssignaler endrer seg langt sjeldnere enn værdata.
+      // Terranors offisielle nyhetsside kontrolleres derfor hver sjette time.
+      const hourUtc = new Date().getUTCHours();
+      if (hourUtc % 6 === 0) {
+        try {
+          const result = await runActivityMonitor(env.DB, { maxItems: 4 });
+          console.log(JSON.stringify({ event: "scheduled-activity-monitor", cron: controller.cron, ...result }));
+        } catch (error) {
+          console.error("Automatisk overvåking av ordre- og aktivitetssignaler feilet", error);
+        }
       }
     }
   },
