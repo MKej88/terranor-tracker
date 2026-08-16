@@ -32,10 +32,10 @@ async function load() {
     if (health.ok) pill.classList.add("ok");
 
     document.querySelector("#revenue").textContent = forecast.revenue.base
-      ? `SEK ${forecast.revenue.base}m`
+      ? `SEK ${forecast.revenue.base} mill.`
       : "—";
     document.querySelector("#ebita").textContent = forecast.adjustedEbita.base
-      ? `SEK ${forecast.adjustedEbita.base}m`
+      ? `SEK ${forecast.adjustedEbita.base} mill.`
       : "—";
     document.querySelector("#confidence").textContent = forecast.confidence ?? "—";
 
