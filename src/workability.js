@@ -26,7 +26,7 @@ const WORKABILITY_SCHEMA = [
 ];
 
 export async function ensureWorkabilitySchema(db) {
-  if (!db) throw new Error("D1 binding DB is missing");
+  if (!db) throw new Error("D1-bindingen DB mangler");
   await db.batch(WORKABILITY_SCHEMA.map((sql) => db.prepare(sql)));
 }
 
@@ -80,16 +80,8 @@ function summarizeRows(rows, sinceMs) {
 
   if (!filtered.length) {
     return {
-      count: 0,
-      score: null,
-      precipShare: null,
-      snowShare: null,
-      highWindShare: null,
-      freezeShare: null,
-      heatShare: null,
-      avgAirTemp: null,
-      avgRoadTemp: null,
-      avgWind: null,
+      count: 0, score: null, precipShare: null, snowShare: null, highWindShare: null,
+      freezeShare: null, heatShare: null, avgAirTemp: null, avgRoadTemp: null, avgWind: null,
     };
   }
 
@@ -128,14 +120,11 @@ function summarizeRows(rows, sinceMs) {
   const highWindShare = highWind / n;
   const freezeShare = road.length ? freeze / road.length : 0;
   const heatShare = air.length ? heat / air.length : 0;
-
-  // Absolute summer workability score, not a revenue score and not yet normalized versus history.
-  // Rain and high wind are the main penalties. Snow/freeze matter in northern/late-quarter areas.
   const score = n >= 6
     ? clamp(100 - 45 * precipShare - 20 * highWindShare - 20 * snowShare - 12 * freezeShare - 8 * heatShare, 0, 100)
     : null;
-
   const avg = (values) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+
   return {
     count: n,
     score: round(score, 1),
@@ -159,15 +148,58 @@ function blend(vvis, smhi, field) {
   return null;
 }
 
+function stationBaseWeight(source, rank) {
+  const r = Math.max(1, Number(rank) || 1);
+  if (source === "VVIS") return [0.55, 0.30, 0.15][r - 1] || 0.08;
+  return [0.65, 0.35][r - 1] || 0.10;
+}
+
+function stationWeight(link) {
+  const distance = Math.max(0, Number(link.distance_km) || 0);
+  return stationBaseWeight(link.source, link.rank_no) / (1 + distance / 100);
+}
+
+function combineStationSummaries(entries) {
+  const usable = entries.filter((entry) => Number.isFinite(entry.summary?.score));
+  const count = entries.reduce((max, entry) => Math.max(max, Number(entry.summary?.count || 0)), 0);
+  if (!usable.length) return {
+    count,
+    stationCount: 0,
+    score: null,
+    precipShare: null,
+    snowShare: null,
+    highWindShare: null,
+    freezeShare: null,
+    heatShare: null,
+    avgAirTemp: null,
+    avgRoadTemp: null,
+    avgWind: null,
+  };
+
+  const fields = ["score", "precipShare", "snowShare", "highWindShare", "freezeShare", "heatShare", "avgAirTemp", "avgRoadTemp", "avgWind"];
+  const result = { count, stationCount: usable.length };
+  for (const field of fields) {
+    const available = usable.filter((entry) => Number.isFinite(entry.summary?.[field]));
+    const totalWeight = available.reduce((sum, entry) => sum + stationWeight(entry.link), 0);
+    result[field] = totalWeight
+      ? round(available.reduce((sum, entry) => sum + entry.summary[field] * stationWeight(entry.link), 0) / totalWeight, field.includes("Share") ? 3 : 1)
+      : null;
+  }
+  return result;
+}
+
 function confidenceFor(vvis24, vvis7, smhi24, smhi7) {
   const count24 = Math.max(vvis24?.count || 0, smhi24?.count || 0);
   const count7 = Math.max(vvis7?.count || 0, smhi7?.count || 0);
   const coverage24 = clamp(count24 / 18, 0, 1);
   const coverage7 = clamp(count7 / 108, 0, 1);
   const sourceFactor = (vvis24?.count || vvis7?.count) ? 1 : 0.75;
-  const score = Math.round(100 * (0.7 * coverage24 + 0.3 * coverage7) * sourceFactor);
+  const stationFactor = vvis24?.stationCount
+    ? 0.85 + 0.15 * Math.min(vvis24.stationCount / 3, 1)
+    : smhi24?.stationCount ? 0.80 + 0.20 * Math.min(smhi24.stationCount / 2, 1) : 0.7;
+  const score = Math.round(100 * (0.7 * coverage24 + 0.3 * coverage7) * sourceFactor * stationFactor);
   let label = "warming_up";
-  if (count24 >= 18 && count7 >= 108) label = "high";
+  if (count24 >= 18 && count7 >= 108 && score >= 85) label = "high";
   else if (count24 >= 12 && count7 >= 48) label = "medium";
   else if (count24 >= 6) label = "low";
   return { score, label, count24, count7 };
@@ -182,17 +214,18 @@ function signalFromScore(score) {
   return "poor";
 }
 
-async function getPrimaryLinks(db) {
+async function getContractLinks(db) {
   const result = await db.prepare(`SELECT
       c.id AS contract_id, c.name, c.start_date, c.end_date, c.annual_run_rate_msek,
-      l.source, l.station_id, l.station_name, l.distance_km
+      l.source, l.station_id, l.station_name, l.distance_km, l.rank_no
     FROM contracts c
     LEFT JOIN weather_station_links l
-      ON l.contract_id=c.id AND l.active=1 AND l.rank_no=1 AND l.source IN ('VVIS','SMHI')
+      ON l.contract_id=c.id AND l.active=1 AND l.source IN ('VVIS','SMHI')
+      AND ((l.source='VVIS' AND l.rank_no<=3) OR (l.source='SMHI' AND l.rank_no<=2))
     WHERE c.country='Sweden'
       AND (c.start_date IS NULL OR c.start_date <= '2026-09-30')
       AND (c.end_date IS NULL OR c.end_date >= '2026-07-01')
-    ORDER BY c.name, l.source`).all();
+    ORDER BY c.name, l.source, l.rank_no`).all();
 
   const map = new Map();
   for (const row of result?.results || []) {
@@ -204,16 +237,17 @@ async function getPrimaryLinks(db) {
         start_date: row.start_date,
         end_date: row.end_date,
         annual_run_rate_msek: row.annual_run_rate_msek,
-        links: {},
+        links: { VVIS: [], SMHI: [] },
       });
     }
     if (row.source && row.station_id) {
-      map.get(id).links[row.source] = {
+      map.get(id).links[row.source].push({
         source: row.source,
         station_id: String(row.station_id),
         station_name: row.station_name,
         distance_km: row.distance_km,
-      };
+        rank_no: Number(row.rank_no),
+      });
     }
   }
   return [...map.values()];
@@ -229,24 +263,31 @@ async function getObservations(db, source, stationId) {
   return result?.results || [];
 }
 
-async function buildContractRow(db, contract, nowMs) {
-  const vvisLink = contract.links.VVIS || null;
-  const smhiLink = contract.links.SMHI || null;
-  const [vvisRows, smhiRows] = await Promise.all([
-    getObservations(db, 'VVIS', vvisLink?.station_id),
-    getObservations(db, 'SMHI', smhiLink?.station_id),
-  ]);
+async function summarizeSource(db, source, links, since24, since7) {
+  if (!links?.length) return { h24: combineStationSummaries([]), d7: combineStationSummaries([]), stations: [] };
+  const entries = await Promise.all(links.map(async (link) => {
+    const rows = await getObservations(db, source, link.station_id);
+    return { link, h24: summarizeRows(rows, since24), d7: summarizeRows(rows, since7) };
+  }));
+  return {
+    h24: combineStationSummaries(entries.map((x) => ({ link: x.link, summary: x.h24 }))),
+    d7: combineStationSummaries(entries.map((x) => ({ link: x.link, summary: x.d7 }))),
+    stations: entries.map((x) => ({ station: x.link, h24: x.h24, d7: x.d7 })),
+  };
+}
 
+async function buildContractRow(db, contract, nowMs) {
   const since24 = nowMs - 24 * 3600000;
   const since7 = nowMs - 7 * 24 * 3600000;
-  const vvis24 = summarizeRows(vvisRows, since24);
-  const vvis7 = summarizeRows(vvisRows, since7);
-  const smhi24 = summarizeRows(smhiRows, since24);
-  const smhi7 = summarizeRows(smhiRows, since7);
-  const score24 = blend(vvis24, smhi24, 'score');
-  const score7 = blend(vvis7, smhi7, 'score');
-  const confidence = confidenceFor(vvis24, vvis7, smhi24, smhi7);
+  const [vvis, smhi] = await Promise.all([
+    summarizeSource(db, "VVIS", contract.links.VVIS, since24, since7),
+    summarizeSource(db, "SMHI", contract.links.SMHI, since24, since7),
+  ]);
+  const score24 = blend(vvis.h24, smhi.h24, "score");
+  const score7 = blend(vvis.d7, smhi.d7, "score");
+  const confidence = confidenceFor(vvis.h24, vvis.d7, smhi.h24, smhi.d7);
   const q3Weight = quarterWeight(contract);
+  const primaryStation = contract.links.VVIS[0] || contract.links.SMHI[0] || null;
 
   return {
     contract_id: contract.contract_id,
@@ -259,11 +300,15 @@ async function buildContractRow(db, contract, nowMs) {
     signal: signalFromScore(score24),
     confidence: confidence.score,
     confidence_label: confidence.label,
-    primary_source: vvisLink ? 'VVIS' : smhiLink ? 'SMHI' : null,
-    primary_station: vvisLink || smhiLink || null,
+    primary_source: contract.links.VVIS.length ? "VVIS" : contract.links.SMHI.length ? "SMHI" : null,
+    primary_station: primaryStation,
+    geography: {
+      road_weather_stations: contract.links.VVIS.length,
+      ordinary_weather_stations: contract.links.SMHI.length,
+    },
     sources: {
-      VVIS: vvisLink ? { station: vvisLink, h24: vvis24, d7: vvis7 } : null,
-      SMHI: smhiLink ? { station: smhiLink, h24: smhi24, d7: smhi7 } : null,
+      VVIS: contract.links.VVIS.length ? vvis : null,
+      SMHI: contract.links.SMHI.length ? smhi : null,
     },
   };
 }
@@ -309,15 +354,15 @@ async function saveSnapshots(db, rows, generatedAt) {
       row.q3_weight_msek,
       row.primary_source,
       row.primary_station?.station_id || null,
-      JSON.stringify(row.sources),
+      JSON.stringify({ geography: row.geography, sources: row.sources }),
     ));
   if (statements.length) await db.batch(statements);
 }
 
 export async function calculateWorkability(db, { persist = true } = {}) {
-  if (!db) throw new Error("D1 binding DB is missing");
+  if (!db) throw new Error("D1-bindingen DB mangler");
   await ensureWorkabilitySchema(db);
-  const contracts = await getPrimaryLinks(db);
+  const contracts = await getContractLinks(db);
   const now = Date.now();
   const rows = [];
   for (const contract of contracts) rows.push(await buildContractRow(db, contract, now));
@@ -325,8 +370,8 @@ export async function calculateWorkability(db, { persist = true } = {}) {
   const generatedAt = new Date(Math.floor(now / 3600000) * 3600000).toISOString();
   if (persist) await saveSnapshots(db, rows, generatedAt);
 
-  const score24 = aggregate(rows, 'score_24h');
-  const score7 = aggregate(rows, 'score_7d');
+  const score24 = aggregate(rows, "score_24h");
+  const score7 = aggregate(rows, "score_7d");
   const confidence = aggregateConfidence(rows);
   const totalKnownWeight = rows.filter((r) => Number.isFinite(r.q3_weight_msek) && r.q3_weight_msek > 0)
     .reduce((sum, r) => sum + r.q3_weight_msek, 0);
@@ -336,7 +381,8 @@ export async function calculateWorkability(db, { persist = true } = {}) {
   return {
     generated_at: generatedAt,
     quarter: TARGET_QUARTER,
-    methodology: "absolute summer workability; contract-weighted; VViS 75% / SMHI 25% when both available",
+    methodology: "Absolutt sommerscore for arbeidsforhold. Flere målestasjoner brukes per kontrakt; veivær teller 75 % og vanlige værdata 25 % når begge finnes.",
+    geography_version: "0.2",
     sweden: {
       score_24h: score24,
       score_7d: score7,
@@ -345,7 +391,7 @@ export async function calculateWorkability(db, { persist = true } = {}) {
       scored_weight_pct: totalKnownWeight ? round(100 * scoredWeight / totalKnownWeight, 1) : 0,
     },
     contracts: rows,
-    note: "Dette er en absolutt workability-score, ikke et earnings- eller vær-mot-normal-signal. Historisk normalisering legges til når vi har nok observasjoner.",
+    note: "Dette er en absolutt score for værbaserte arbeidsforhold, ikke et direkte resultatestimat. Historisk sammenligning beregnes separat mot 10-årsgrunnlaget fra SMHI.",
   };
 }
 
