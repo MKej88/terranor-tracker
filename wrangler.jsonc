@@ -9,7 +9,7 @@
     "run_worker_first": true
   },
   "secrets": {
-    "required": ["APP_PASSWORD", "SESSION_SECRET"]
+    "required": ["APP_PASSWORD", "SESSION_SECRET", "TRAFIKVERKET_API_KEY"]
   },
   "d1_databases": [
     {
