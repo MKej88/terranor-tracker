@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Terranor Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">PRIVATE EARNINGS NOWCAST</p>
+          <h1>Terranor Tracker</h1>
+          <p class="lede">Kontrakter, vær, extra works og forecast-historikk frem mot Q3 2026.</p>
+        </div>
+        <div class="pill" id="health-pill">kobler til…</div>
+      </header>
+
+      <section class="grid kpis">
+        <article class="card">
+          <span>Target quarter</span>
+          <strong>Q3 2026</strong>
+          <small>Rapport 10. november</small>
+        </article>
+        <article class="card">
+          <span>Revenue nowcast</span>
+          <strong id="revenue">—</strong>
+          <small>Kalibreres etter Q2</small>
+        </article>
+        <article class="card">
+          <span>Adj. EBITA</span>
+          <strong id="ebita">—</strong>
+          <small>Separat marginmodell</small>
+        </article>
+        <article class="card">
+          <span>Confidence</span>
+          <strong id="confidence">—</strong>
+          <small>Bygges opp med live data</small>
+        </article>
+      </section>
+
+      <section class="grid two">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">MODEL STATUS</p>
+              <h2>Datainnsamling</h2>
+            </div>
+          </div>
+          <div id="status-list" class="status-list"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">ROADMAP</p>
+              <h2>Neste steg</h2>
+            </div>
+          </div>
+          <ol class="roadmap">
+            <li><b>25. aug:</b> legg inn Q2 actual og mål v0.3 mot benchmark.</li>
+            <li>Kalibrer modellen én gang og lås Q3-metodikken.</li>
+            <li>Koble D1-database og forecast history.</li>
+            <li>Start timebasert innsamling av vær- og kontraktsdata.</li>
+            <li>Bygg live driver bridge og Q3 nowcast.</li>
+          </ol>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">ARCHITECTURE</p>
+            <h2>Tracker-moduler</h2>
+          </div>
+        </div>
+        <div class="modules">
+          <div><b>Contracts</b><span>start/slutt, verdi, run-rate, geografi</span></div>
+          <div><b>Weather</b><span>VViS / SMHI / DMI / FMI</span></div>
+          <div><b>Extra works</b><span>bestillinger, offentlige budsjetter, signaler</span></div>
+          <div><b>Nowcast</b><span>revenue, EBITA, consensus gap</span></div>
+          <div><b>History</b><span>ingen overskriving av gamle forecasts</span></div>
+          <div><b>Diagnostics</b><span>modellfeil og driver attribution</span></div>
+        </div>
+      </section>
+
+      <footer>Terranor Tracker · private prototype</footer>
+    </main>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
