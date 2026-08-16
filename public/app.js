@@ -1,4 +1,19 @@
-const fmtStatus = (value) => String(value || "planned").replaceAll("_", " ");
+const STATUS_TEXT = {
+  active: "aktiv",
+  ready: "klar",
+  planned: "planlagt",
+  warming_up: "samler mer data",
+  seeded: "grunnlag lagt inn",
+  "database connected": "lagres i databasen",
+  "awaiting API key": "venter på API-nøkkel",
+  ok: "i orden",
+  error: "feil",
+};
+
+const fmtStatus = (value) => {
+  const raw = String(value || "planned");
+  return STATUS_TEXT[raw] || raw.replaceAll("_", " ");
+};
 
 async function load() {
   try {
@@ -13,7 +28,7 @@ async function load() {
     const forecast = await forecastRes.json();
 
     const pill = document.querySelector("#health-pill");
-    pill.textContent = health.ok ? "Worker online" : "Worker error";
+    pill.textContent = health.ok ? "Tjenesten er på nett" : "Feil i tjenesten";
     if (health.ok) pill.classList.add("ok");
 
     document.querySelector("#revenue").textContent = forecast.revenue.base
@@ -25,16 +40,17 @@ async function load() {
     document.querySelector("#confidence").textContent = forecast.confidence ?? "—";
 
     const labels = {
-      trafficWeather: "Trafikverket VViS",
-      smhi: "SMHI",
-      dmi: "DMI",
-      fmi: "FMI",
-      contracts: "Contract tracker",
-      forecastHistory: "Forecast history",
+      trafficWeather: "Veivær fra Trafikverket",
+      smhi: "Vanlige svenske værstasjoner",
+      dmi: "Danske værdata",
+      fmi: "Finske værdata",
+      workability: "Værbaserte arbeidsforhold",
+      contracts: "Kontraktsoversikt",
+      forecastHistory: "Historikk for estimater",
     };
 
     const statusList = document.querySelector("#status-list");
-    statusList.innerHTML = Object.entries(status.dataCollection)
+    statusList.innerHTML = Object.entries(status.dataCollection || {})
       .map(
         ([key, value]) => `
           <div class="status-row">
@@ -45,7 +61,7 @@ async function load() {
       .join("");
   } catch (error) {
     const pill = document.querySelector("#health-pill");
-    pill.textContent = "tilkoblingsfeil";
+    pill.textContent = "Tilkoblingsfeil";
     console.error(error);
   }
 }
