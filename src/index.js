@@ -12,26 +12,11 @@ import {
   listVvisContracts,
   probeTrafikverket,
 } from "./vvis.js";
-
-const json = (data, init = {}) =>
-  new Response(JSON.stringify(data, null, 2), {
-    ...init,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-      ...(init.headers || {}),
-    },
-  });
-
-const html = (body, init = {}) =>
-  new Response(body, {
-    ...init,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-      ...(init.headers || {}),
-    },
-  });
+import {
+  calculateWorkability,
+  ensureWorkabilitySchema,
+  getWorkabilityHistory,
+} from "./workability.js";
 
 const SESSION_COOKIE = "tt_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -46,6 +31,24 @@ const seedForecast = {
   updatedAt: null,
 };
 
+const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
+  ...init,
+  headers: {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    ...(init.headers || {}),
+  },
+});
+
+const html = (body, init = {}) => new Response(body, {
+  ...init,
+  headers: {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    ...(init.headers || {}),
+  },
+});
+
 function bytesToBase64Url(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -59,8 +62,7 @@ function stringToBase64Url(value) {
 function base64UrlToString(value) {
   const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4);
   const binary = atob(padded);
-  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
+  return new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
 }
 
 async function importHmacKey(secret) {
@@ -93,9 +95,8 @@ async function verifySession(token, secret) {
 
 function getCookie(request, name) {
   const header = request.headers.get("cookie") || "";
-  const cookies = header.split(";").map((part) => part.trim());
   const prefix = `${name}=`;
-  const found = cookies.find((part) => part.startsWith(prefix));
+  const found = header.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix));
   return found ? found.slice(prefix.length) : null;
 }
 
@@ -112,29 +113,17 @@ async function secureEqual(a, b) {
   return diff === 0;
 }
 
+function redirect(location, headers = {}) {
+  return new Response(null, { status: 302, headers: { location, ...headers } });
+}
+
 function loginPage(error = "") {
-  return `<!doctype html>
-<html lang="no"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Terranor Tracker – Logg inn</title><style>
-:root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1220; color: #e8eef8; }
-.card { width: min(92vw, 390px); padding: 30px; border: 1px solid #263246; border-radius: 16px; background: #111a2b; box-shadow: 0 18px 50px rgba(0,0,0,.35); }
-h1 { margin: 0 0 6px; font-size: 24px; } p { margin: 0 0 24px; color: #9fb0c9; }
-label { display:block; margin-bottom:8px; font-size:14px; color:#c7d3e5; }
-input { width:100%; padding:12px 14px; border-radius:10px; border:1px solid #34435b; background:#0b1220; color:#fff; font-size:16px; }
-button { width:100%; margin-top:14px; padding:12px 14px; border:0; border-radius:10px; background:#2f6fed; color:white; font-weight:700; cursor:pointer; }
-.error { margin-top:12px; color:#ff9d9d; font-size:14px; } .meta { margin-top:20px; font-size:12px; color:#71819b; }
-</style></head><body><main class="card"><h1>Terranor Tracker</h1><p>Privat earnings nowcast</p>
-<form method="post" action="/login"><label for="password">Passord</label><input id="password" name="password" type="password" autocomplete="current-password" autofocus required /><button type="submit">Logg inn</button></form>
-${error ? `<div class="error">${error}</div>` : ""}<div class="meta">Innloggingen lagres i 7 dager på denne enheten.</div></main></body></html>`;
+  return `<!doctype html><html lang="no"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Terranor Tracker – Logg inn</title><style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1220;color:#e8eef8}.card{width:min(92vw,390px);padding:30px;border:1px solid #263246;border-radius:16px;background:#111a2b;box-shadow:0 18px 50px rgba(0,0,0,.35)}h1{margin:0 0 6px;font-size:24px}p{margin:0 0 24px;color:#9fb0c9}label{display:block;margin-bottom:8px;font-size:14px;color:#c7d3e5}input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #34435b;background:#0b1220;color:#fff;font-size:16px}button{width:100%;margin-top:14px;padding:12px 14px;border:0;border-radius:10px;background:#2f6fed;color:white;font-weight:700;cursor:pointer}.error{margin-top:12px;color:#ff9d9d;font-size:14px}.meta{margin-top:20px;font-size:12px;color:#71819b}</style></head><body><main class="card"><h1>Terranor Tracker</h1><p>Privat earnings nowcast</p><form method="post" action="/login"><label for="password">Passord</label><input id="password" name="password" type="password" autocomplete="current-password" autofocus required/><button type="submit">Logg inn</button></form>${error ? `<div class="error">${error}</div>` : ""}<div class="meta">Innloggingen lagres i 7 dager på denne enheten.</div></main></body></html>`;
 }
 
 function setupPage() {
   return `<!doctype html><html lang="no"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Terranor Tracker – Oppsett</title></head><body style="font-family:system-ui;background:#0b1220;color:white;padding:40px"><h1>Sikkerhetsoppsett mangler</h1><p>Opprett Cloudflare-secrets <code>APP_PASSWORD</code> og <code>SESSION_SECRET</code> før trackeren kan brukes.</p></body></html>`;
-}
-
-function redirect(location, headers = {}) {
-  return new Response(null, { status: 302, headers: { location, ...headers } });
 }
 
 async function initializeData(db) {
@@ -142,6 +131,15 @@ async function initializeData(db) {
   await seedContracts(db);
   await ensureWeatherSchema(db);
   await seedWeatherAnchors(db);
+  await ensureWorkabilitySchema(db);
+}
+
+async function safeWorkability(db, persist = false) {
+  try {
+    return await calculateWorkability(db, { persist });
+  } catch {
+    return null;
+  }
 }
 
 export default {
@@ -170,21 +168,23 @@ export default {
 
     if (url.pathname === "/login" && request.method === "POST") {
       const form = await request.formData();
-      const password = String(form.get("password") || "");
-      const valid = await secureEqual(password, env.APP_PASSWORD);
+      const valid = await secureEqual(String(form.get("password") || ""), env.APP_PASSWORD);
       if (!valid) return html(loginPage("Feil passord."), { status: 401 });
       if (env.DB) await initializeData(env.DB);
       const now = Math.floor(Date.now() / 1000);
       const token = await signSession({ iat: now, exp: now + SESSION_TTL_SECONDS }, env.SESSION_SECRET);
-      return redirect("/", { "set-cookie": `${SESSION_COOKIE}=${token}; Max-Age=${SESSION_TTL_SECONDS}; Path=/; HttpOnly; Secure; SameSite=Strict` });
+      return redirect("/", {
+        "set-cookie": `${SESSION_COOKIE}=${token}; Max-Age=${SESSION_TTL_SECONDS}; Path=/; HttpOnly; Secure; SameSite=Strict`,
+      });
     }
 
     if (url.pathname === "/logout") {
-      return redirect("/login", { "set-cookie": `${SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict` });
+      return redirect("/login", {
+        "set-cookie": `${SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict`,
+      });
     }
 
-    const token = getCookie(request, SESSION_COOKIE);
-    const authenticated = await verifySession(token, env.SESSION_SECRET);
+    const authenticated = await verifySession(getCookie(request, SESSION_COOKIE), env.SESSION_SECRET);
     if (!authenticated) {
       if (url.pathname.startsWith("/api/")) return json({ error: "Unauthorized" }, { status: 401 });
       return redirect("/login");
@@ -237,23 +237,40 @@ export default {
       catch (error) { return json({ ok: false, error: String(error?.message || error) }, { status: 500 }); }
     }
 
+    if (url.pathname === "/api/workability") {
+      try { if (env.DB) await initializeData(env.DB); return json(await calculateWorkability(env.DB, { persist: true })); }
+      catch (error) { return json({ ok: false, error: String(error?.message || error) }, { status: 500 }); }
+    }
+
+    if (url.pathname === "/api/workability/history") {
+      try {
+        if (env.DB) await initializeData(env.DB);
+        return json(await getWorkabilityHistory(env.DB, url.searchParams.get("hours") || 168));
+      } catch (error) {
+        return json({ ok: false, error: String(error?.message || error) }, { status: 500 });
+      }
+    }
+
     if (url.pathname === "/api/forecast") return json(seedForecast);
 
     if (url.pathname === "/api/status") {
       let weather = null;
       let vvis = null;
+      let workability = null;
       if (env.DB) {
-        try { await initializeData(env.DB); weather = await getWeatherStatus(env.DB); } catch { weather = null; }
-        try { vvis = await getVvisStatus(env.DB); } catch { vvis = null; }
+        try { await initializeData(env.DB); weather = await getWeatherStatus(env.DB); } catch {}
+        try { vvis = await getVvisStatus(env.DB); } catch {}
+        workability = await safeWorkability(env.DB, false);
       }
       return json({
-        phase: "Q3 data collection setup",
+        phase: "Q3 live data collection",
         targetQuarter: "Q3 2026",
         q2ReportDate: "2026-08-25",
         q3ReportDate: "2026-11-10",
         dataCollection: {
           smhi: weather?.latestRun?.status === "ok" ? "active" : "ready",
           trafficWeather: vvis?.latestRun?.status === "ok" ? "active" : env.TRAFIKVERKET_API_KEY ? "ready" : "awaiting API key",
+          workability: workability?.sweden?.score_24h !== null ? "active" : "warming_up",
           dmi: "planned",
           fmi: "planned",
           contracts: "seeded",
@@ -261,6 +278,7 @@ export default {
         },
         weather,
         vvis,
+        workability: workability?.sweden || null,
       });
     }
 
@@ -268,7 +286,7 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  async scheduled(controller, env, ctx) {
+  async scheduled(controller, env) {
     if (!env.DB) {
       console.error("Scheduled collection skipped: D1 binding missing");
       return;
@@ -278,7 +296,7 @@ export default {
 
     try {
       const result = await collectSmhiWeather(env.DB);
-      console.log(JSON.stringify({ event: "scheduled-smhi-collection", cron: controller.cron, scheduledTime: new Date(controller.scheduledTime).toISOString(), ...result }));
+      console.log(JSON.stringify({ event: "scheduled-smhi-collection", cron: controller.cron, ...result }));
     } catch (error) {
       console.error("Scheduled SMHI collection failed", error);
     }
@@ -286,10 +304,17 @@ export default {
     if (env.TRAFIKVERKET_API_KEY) {
       try {
         const result = await collectVvisWeather(env.DB, env.TRAFIKVERKET_API_KEY);
-        console.log(JSON.stringify({ event: "scheduled-vvis-collection", cron: controller.cron, scheduledTime: new Date(controller.scheduledTime).toISOString(), ...result }));
+        console.log(JSON.stringify({ event: "scheduled-vvis-collection", cron: controller.cron, ...result }));
       } catch (error) {
         console.error("Scheduled VViS collection failed", error);
       }
+    }
+
+    try {
+      const result = await calculateWorkability(env.DB, { persist: true });
+      console.log(JSON.stringify({ event: "scheduled-workability", cron: controller.cron, sweden: result.sweden }));
+    } catch (error) {
+      console.error("Scheduled workability calculation failed", error);
     }
   },
 };
