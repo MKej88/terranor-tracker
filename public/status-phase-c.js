@@ -5,6 +5,7 @@ const fmt = (value) => {
 
 function shownStatus(source) {
   if (source?.status === "ok") return { text: "aktiv", warn: false };
+  if (source?.status === "partial") return { text: "delvis", warn: true };
   if (source?.status === "error") return { text: "feil", warn: true };
   return { text: "klar for test", warn: false };
 }
@@ -25,13 +26,21 @@ function updateModelRows(data) {
   });
 }
 
+async function json(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+  return data;
+}
+
 async function loadPhaseC() {
   const box = document.querySelector("#phase-c-summary");
   if (!box) return;
   try {
-    const response = await fetch("/api/nordic/status", { cache: "no-store" });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+    const [data, backfill] = await Promise.all([
+      json("/api/nordic/status"),
+      json("/api/nordic/backfill/status"),
+    ]);
     const dmi = data?.sources?.DMI || {};
     const fmi = data?.sources?.FMI || {};
     const denmark = data?.countries?.Denmark || {};
@@ -40,7 +49,10 @@ async function loadPhaseC() {
     const linked = Number(denmark.linked || 0) + Number(finland.linked || 0);
     const targets = Number(denmark.targets || 0) + Number(finland.targets || 0);
     const observations = Number(dmi.observations || 0) + Number(fmi.observations || 0);
-    box.innerHTML = `<div class="status-row"><span>${active}/2 værkilder i drift · ${linked}/${targets} værankere koblet</span><b>${fmt(observations)} målinger</b></div>`;
+    box.innerHTML = `
+      <div class="status-row"><span>${active}/2 værkilder i drift · ${linked}/${targets} værankere koblet</span><b>${fmt(observations)} målinger</b></div>
+      <div class="status-row"><span>60-dagers historikk</span><b>${fmt(backfill?.progressPct || 0)} % · ${fmt(backfill?.targetsComplete || 0)}/${fmt(backfill?.targets || 0)} ferdige</b></div>
+    `;
     updateModelRows(data);
     setTimeout(() => updateModelRows(data), 800);
   } catch (error) {
