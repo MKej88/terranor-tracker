@@ -3,6 +3,7 @@ import { ensureNordicSchema } from "./nordic.js";
 const DMI_OBS_URL = "https://opendataapi.dmi.dk/v2/metObs/collections/observation/items";
 const FMI_WFS_URL = "https://opendata.fmi.fi/wfs";
 const DAY_MS = 86400000;
+const INSERT_ROWS_PER_QUERY = 11; // 11 rows x 9 bindings = 99, below D1's 100-bind limit.
 
 const DMI_SPECS = [
   ["temp_dry", "air_temp_c"],
@@ -49,35 +50,54 @@ function xmlDecode(value) {
     .replaceAll("&#39;", "'");
 }
 
+function hourBucket(iso) {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(Math.floor(ms / 3600000) * 3600000).toISOString();
+}
+
 export async function ensureNordicBackfillSchema(db) {
   if (!db) throw new Error("D1-bindingen DB mangler");
   await ensureNordicSchema(db);
   await db.batch(BACKFILL_SCHEMA.map((sql) => db.prepare(sql)));
 }
 
-function observationStatement(db, row) {
+function insertObservationChunk(db, rows) {
+  const placeholders = rows.map(() => "(?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?)").join(",");
+  const values = [];
+  for (const row of rows) {
+    values.push(
+      row.contract_id || null,
+      row.source,
+      String(row.station_id),
+      row.observed_at,
+      row.air_temp_c,
+      row.precipitation_mm,
+      row.wind_ms,
+      row.humidity_pct,
+      JSON.stringify(row.raw || {}),
+    );
+  }
   return db.prepare(`INSERT INTO weather_observations (
       contract_id, source, station_id, observed_at, air_temp_c, road_temp_c,
       precipitation_mm, precipitation_type, wind_ms, humidity_pct, raw_json
-    ) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?)
+    ) VALUES ${placeholders}
     ON CONFLICT(source, station_id, observed_at) DO UPDATE SET
       contract_id=COALESCE(excluded.contract_id, weather_observations.contract_id),
       air_temp_c=COALESCE(excluded.air_temp_c, weather_observations.air_temp_c),
       precipitation_mm=COALESCE(excluded.precipitation_mm, weather_observations.precipitation_mm),
       wind_ms=COALESCE(excluded.wind_ms, weather_observations.wind_ms),
       humidity_pct=COALESCE(excluded.humidity_pct, weather_observations.humidity_pct),
-      raw_json=excluded.raw_json`)
-    .bind(row.contract_id || null, row.source, String(row.station_id), row.observed_at,
-      row.air_temp_c, row.precipitation_mm, row.wind_ms, row.humidity_pct,
-      JSON.stringify(row.raw || {}));
+      raw_json=excluded.raw_json`).bind(...values).run();
 }
 
 async function upsertRows(db, rows) {
   let written = 0;
   const ordered = [...rows].sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at));
-  for (let i = 0; i < ordered.length; i += 50) {
-    const chunk = ordered.slice(i, i + 50);
-    await db.batch(chunk.map((row) => observationStatement(db, row)));
+  for (let i = 0; i < ordered.length; i += INSERT_ROWS_PER_QUERY) {
+    const chunk = ordered.slice(i, i + INSERT_ROWS_PER_QUERY);
+    if (!chunk.length) continue;
+    await insertObservationChunk(db, chunk);
     written += chunk.length;
   }
   return written;
@@ -91,7 +111,7 @@ async function fetchDmiParameter(stationId, parameterId, startIso, endIso) {
     parameterId,
   });
   const response = await fetch(`${DMI_OBS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/0.9" },
+    headers: { "user-agent": "Terranor-Tracker/1.1" },
   });
   if (!response.ok) {
     const body = await response.text();
@@ -103,8 +123,9 @@ async function fetchDmiParameter(stationId, parameterId, startIso, endIso) {
 async function backfillDmiTarget(db, target, startIso, endIso) {
   const datasets = await Promise.all(DMI_SPECS.map(([parameter]) =>
     fetchDmiParameter(target.station_id, parameter, startIso, endIso)));
-  const rows = new Map();
+  const buckets = new Map();
   const parameterCounts = {};
+
   for (let i = 0; i < DMI_SPECS.length; i += 1) {
     const [parameter, field] = DMI_SPECS[i];
     let count = 0;
@@ -112,27 +133,48 @@ async function backfillDmiTarget(db, target, startIso, endIso) {
       const p = feature?.properties || {};
       const observed = p.observed && Number.isFinite(Date.parse(p.observed)) ? new Date(p.observed).toISOString() : null;
       const value = numeric(p.value);
-      if (!observed || value === null) continue;
+      const bucket = observed ? hourBucket(observed) : null;
+      if (!bucket || value === null) continue;
       count += 1;
-      const row = rows.get(observed) || {
+      const entry = buckets.get(bucket) || {
         contract_id: target.contract_id,
         source: "DMI",
         station_id: target.station_id,
-        observed_at: observed,
-        air_temp_c: null,
-        precipitation_mm: null,
-        wind_ms: null,
-        humidity_pct: null,
-        raw: { location: target.label, stationName: target.station_name, historicalBackfill: true, parameters: {} },
+        observed_at: bucket,
+        accumulators: {},
+        raw: { location: target.label, stationName: target.station_name, historicalBackfill: true, hourlyAggregation: true, parameters: {} },
       };
-      row[field] = field === "precipitation_mm" && value < 0 ? 0 : value;
-      row.raw.parameters[parameter] = { value, qcStatus: p.qcStatus || null };
-      rows.set(observed, row);
+      const adjusted = field === "precipitation_mm" && value < 0 ? 0 : value;
+      const acc = entry.accumulators[field] || { sum: 0, count: 0 };
+      acc.sum += adjusted;
+      acc.count += 1;
+      entry.accumulators[field] = acc;
+      entry.raw.parameters[parameter] = { samples: acc.count, lastValue: adjusted, qcStatus: p.qcStatus || null };
+      buckets.set(bucket, entry);
     }
     parameterCounts[parameter] = count;
   }
-  const written = await upsertRows(db, rows.values());
-  return { written, rows: rows.size, parameterCounts };
+
+  const rows = [...buckets.values()].map((entry) => {
+    const avg = (field) => {
+      const acc = entry.accumulators[field];
+      return acc?.count ? acc.sum / acc.count : null;
+    };
+    return {
+      contract_id: entry.contract_id,
+      source: entry.source,
+      station_id: entry.station_id,
+      observed_at: entry.observed_at,
+      air_temp_c: avg("air_temp_c"),
+      precipitation_mm: avg("precipitation_mm"),
+      wind_ms: avg("wind_ms"),
+      humidity_pct: avg("humidity_pct"),
+      raw: entry.raw,
+    };
+  });
+
+  const written = await upsertRows(db, rows);
+  return { written, rows: rows.length, parameterCounts, resolution: "hourly" };
 }
 
 function fmiParameterFromMember(member) {
@@ -197,7 +239,7 @@ async function backfillFmiTarget(db, target, startIso, endIso) {
     parameters: "temperature,windspeedms,humidity,precipitation1h",
   });
   const response = await fetch(`${FMI_WFS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/0.9", "accept": "application/xml,text/xml" },
+    headers: { "user-agent": "Terranor-Tracker/1.1", "accept": "application/xml,text/xml" },
   });
   if (!response.ok) throw new Error(`FMI ${target.location_name} historikk feilet: ${response.status}`);
   const xml = await response.text();
@@ -211,7 +253,7 @@ async function backfillFmiTarget(db, target, startIso, endIso) {
       .bind(String(parsed.stationId), parsed.stationName, new Date().toISOString(), target.id).run();
   }
   const written = await upsertRows(db, parsed.rows);
-  return { written, rows: parsed.rows.length, stationId: parsed.stationId, stationName: parsed.stationName };
+  return { written, rows: parsed.rows.length, stationId: parsed.stationId, stationName: parsed.stationName, resolution: "hourly" };
 }
 
 async function getTargetCoverage(db, target, days, nowMs) {
@@ -243,7 +285,6 @@ async function chooseTasks(db, days, maxTasks) {
   const incomplete = coverage.filter((x) => x.linked && !x.complete)
     .sort((a, b) => a.coveredDays - b.coveredDays || String(a.source).localeCompare(String(b.source)) || Number(a.id) - Number(b.id));
 
-  // Prefer one task from each source before taking a second task from the same source.
   const selected = [];
   const usedSources = new Set();
   for (const target of incomplete) {
@@ -289,6 +330,7 @@ async function runTask(db, target, days) {
       chunkStart: startIso,
       chunkEnd: endIso,
       observationsWritten: collected.written || 0,
+      resolution: collected.resolution || "hourly",
       status: "ok",
     };
   } catch (error) {
@@ -314,7 +356,7 @@ export async function runNordicBackfill(db, { days = 60, maxTasks = 2 } = {}) {
     tasksAttempted: details.length,
     details,
     completeBeforeRun: coverage.length > 0 && coverage.every((x) => x.complete),
-    note: "Historikken fylles bakover i små deler for å holde API- og databasebelastningen lav. Danmark bruker 7-dagersblokker og Finland 14-dagersblokker.",
+    note: "Historikken fylles bakover i små deler. Danmark aggregeres til timeverdier og bruker 7-dagersblokker; Finland bruker 14-dagersblokker.",
   };
 }
 
