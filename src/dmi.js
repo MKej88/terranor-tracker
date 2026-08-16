@@ -125,8 +125,13 @@ async function collectTarget(db, target, station) {
   const rows = new Map();
   const parameterCounts = {};
 
-  for (const [parameter, field] of DMI_SPECS) {
-    const dataset = await fetchDmiParameter(station.station_id, parameter, start.toISOString(), end.toISOString());
+  const datasets = await Promise.all(DMI_SPECS.map(async ([parameter, field]) => ({
+    parameter,
+    field,
+    dataset: await fetchDmiParameter(station.station_id, parameter, start.toISOString(), end.toISOString()),
+  })));
+
+  for (const { parameter, field, dataset } of datasets) {
     let count = 0;
     for (const feature of dataset?.features || []) {
       const p = feature?.properties || {};
