@@ -12,6 +12,7 @@ import {
   runActivityMonitor,
 } from "./activity.js";
 import { getNordicWeatherStatus, runNordicWeather } from "./nordic.js";
+import { runDmiWeather } from "./dmi.js";
 import { ensureNordicContracts } from "./nordic-contracts.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
@@ -130,9 +131,26 @@ export default {
 
       if (url.pathname === "/api/nordic/run") {
         await ensureNordicContracts(env.DB);
-        return json(await runNordicWeather(env.DB, {
-          country: url.searchParams.get("country") || "all",
-        }));
+        const country = String(url.searchParams.get("country") || "all").toLowerCase();
+        if (["denmark", "danmark", "dmi"].includes(country)) {
+          const DMI = await runDmiWeather(env.DB);
+          return json({ ok: DMI.ok, phase: "C", sources: { DMI }, note: "Fase C samler meteorologiske observasjoner for kjente danske og finske lokasjoner. Været påvirker ikke resultatestimatet automatisk." });
+        }
+        if (["finland", "fmi"].includes(country)) {
+          return json(await runNordicWeather(env.DB, { country: "Finland" }));
+        }
+        if (country === "all") {
+          const DMI = await runDmiWeather(env.DB);
+          const finland = await runNordicWeather(env.DB, { country: "Finland" });
+          const FMI = finland.sources?.FMI;
+          return json({
+            ok: Boolean(DMI.ok && FMI?.ok),
+            phase: "C",
+            sources: { DMI, FMI },
+            note: "Fase C samler meteorologiske observasjoner for kjente danske og finske lokasjoner. Været påvirker ikke resultatestimatet automatisk.",
+          });
+        }
+        return json({ ok: false, error: "country må være all, Denmark eller Finland" }, { status: 400 });
       }
 
       if (url.pathname === "/api/nordic/status") {
@@ -191,17 +209,15 @@ export default {
         console.error("Automatisk 10-års værgrunnlag feilet", error);
       }
 
-      // Fase C: danske og finske meteorologiske observasjoner samles hver time.
       try {
         await ensureNordicContracts(env.DB);
-        const result = await runNordicWeather(env.DB, { country: "all" });
-        console.log(JSON.stringify({ event: "scheduled-nordic-weather", cron: controller.cron, ...result }));
+        const DMI = await runDmiWeather(env.DB);
+        const finland = await runNordicWeather(env.DB, { country: "Finland" });
+        console.log(JSON.stringify({ event: "scheduled-nordic-weather", cron: controller.cron, DMI, FMI: finland.sources?.FMI }));
       } catch (error) {
         console.error("Automatisk dansk/finsk værinnsamling feilet", error);
       }
 
-      // Offentlige ordre-/aktivitetssignaler endrer seg langt sjeldnere enn værdata.
-      // Terranors offisielle nyhetsside kontrolleres derfor hver sjette time.
       const hourUtc = new Date().getUTCHours();
       if (hourUtc % 6 === 0) {
         try {
