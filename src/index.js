@@ -1,4 +1,4 @@
-import { ensureSchema, getDbStatus } from "./db.js";
+import { ensureSchema, getDbStatus, listContracts, seedContracts } from "./db.js";
 
 const json = (data, init = {}) =>
   new Response(JSON.stringify(data, null, 2), {
@@ -150,6 +150,12 @@ function redirect(location, headers = {}) {
   return new Response(null, { status: 302, headers: { location, ...headers } });
 }
 
+async function getSeededContracts(db) {
+  let contracts = await listContracts(db);
+  if (contracts.length === 0) contracts = await seedContracts(db);
+  return contracts;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -180,7 +186,10 @@ export default {
       const valid = await secureEqual(password, env.APP_PASSWORD);
       if (!valid) return html(loginPage("Feil passord."), { status: 401 });
 
-      if (env.DB) await ensureSchema(env.DB);
+      if (env.DB) {
+        await ensureSchema(env.DB);
+        await getSeededContracts(env.DB);
+      }
 
       const now = Math.floor(Date.now() / 1000);
       const token = await signSession({ iat: now, exp: now + SESSION_TTL_SECONDS }, env.SESSION_SECRET);
@@ -204,9 +213,19 @@ export default {
 
     if (url.pathname === "/api/db-status") {
       try {
+        await getSeededContracts(env.DB);
         return json(await getDbStatus(env.DB));
       } catch (error) {
         return json({ configured: Boolean(env.DB), error: String(error?.message || error) }, { status: 500 });
+      }
+    }
+
+    if (url.pathname === "/api/contracts") {
+      try {
+        const contracts = await getSeededContracts(env.DB);
+        return json({ count: contracts.length, contracts });
+      } catch (error) {
+        return json({ error: String(error?.message || error) }, { status: 500 });
       }
     }
 
@@ -225,7 +244,7 @@ export default {
           smhi: "planned",
           dmi: "planned",
           fmi: "planned",
-          contracts: "seed data next",
+          contracts: "public seed portfolio connected",
           forecastHistory: "database connected",
         },
       });
@@ -242,8 +261,9 @@ export default {
     if (env.DB) {
       try {
         await ensureSchema(env.DB);
+        await getSeededContracts(env.DB);
       } catch (error) {
-        console.error("D1 schema initialization failed", error);
+        console.error("D1 initialization failed", error);
       }
     }
 
