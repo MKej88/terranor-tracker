@@ -25,6 +25,18 @@ const PHASE_C_CONTRACTS = [
   },
   {
     country: "Finland",
+    name: "Järvenpää",
+    customer: "Järvenpää city",
+    contractType: "Municipal road O&M incl. winter",
+    startDate: "2026-10-01",
+    endDate: "2030-09-30",
+    totalValue: 116.0,
+    annualRunRate: 29.0,
+    sourceUrl: "https://terranor.se/terranor-vinner-drift-och-underhallskontrakt-i-jarvenpaa-finland-vart-116-miljoner-kronor/",
+    confidence: "high",
+  },
+  {
+    country: "Finland",
     name: "Kemi",
     customer: null,
     contractType: "State road O&M",
