@@ -2,6 +2,7 @@ import baseWorker from "./index.js";
 import { getBackfillStatus, runSmhiBackfill } from "./backfill.js";
 import { getContractBridge } from "./bridge.js";
 import { addSignal, getSignalSummary, listSignals } from "./signals.js";
+import { getDataQuality } from "./quality.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
@@ -16,8 +17,7 @@ async function authenticatedFallback(request, env) {
   // The existing worker owns authentication. For new /api routes it returns 401
   // before login and 404 after successful authentication, so we only execute a
   // new handler after the base worker has confirmed the session.
-  const response = await baseWorker.fetch(request, env);
-  return response;
+  return baseWorker.fetch(request, env);
 }
 
 export default {
@@ -29,6 +29,7 @@ export default {
       "/api/contract-bridge",
       "/api/signals",
       "/api/signals/summary",
+      "/api/data-quality",
     ].includes(url.pathname);
 
     if (!isExtendedApi) return baseWorker.fetch(request, env);
@@ -52,6 +53,10 @@ export default {
 
       if (url.pathname === "/api/contract-bridge") {
         return json(await getContractBridge(env.DB));
+      }
+
+      if (url.pathname === "/api/data-quality") {
+        return json(await getDataQuality(env.DB));
       }
 
       if (url.pathname === "/api/signals/summary") {
