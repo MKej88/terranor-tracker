@@ -1,6 +1,6 @@
 # Terranor Tracker
 
-Privat verktøy for løpende resultatestimat for Terranor Group. Målet er å samle kontrakter, værforhold, tilleggsarbeider og historiske estimater i én modell frem mot kvartalsrapportene.
+Privat verktøy for løpende resultatestimat for Terranor Group. Målet er å samle kontrakter, værforhold, tilleggsarbeider, bestillinger og historiske estimater i én modell frem mot kvartalsrapportene.
 
 Første hovedmål er Q3 2026.
 
@@ -12,7 +12,7 @@ Systemet følger flere typer informasjon som kan påvirke Terranors omsetning og
 - **Veivær i Sverige:** målinger fra Trafikverkets værstasjoner langs veiene, blant annet veibanetemperatur, lufttemperatur, vind, nedbør og snø.
 - **Vanlig svensk vær:** målinger fra Sveriges meteorologiske og hydrologiske institutt.
 - **Historisk vær:** brukes for å sammenligne dagens forhold med tidligere år på samme sted og samme tid på året.
-- **Tilleggsarbeider og andre aktivitetssignaler:** offentlige bestillinger, budsjetter, opsjoner og andre kildebelagte signaler.
+- **Tilleggsarbeider og andre aktivitetssignaler:** offentlige bestillinger, utløste opsjoner og andre kildebelagte signaler.
 - **Løpende resultatestimat:** omsetning, justert EBITA og etter hvert avvik mot markedets forventninger.
 - **Historikk:** gamle estimater beholdes i stedet for å overskrives, slik at modellen kan etterprøves i ettertid.
 
@@ -37,28 +37,47 @@ Fra fase A brukes flere målestasjoner per kontrakt. Store driftsområder kan br
 
 Fase A er satt i gang og består av to deler.
 
-### 1. Tiårig sammenligningsgrunnlag for vær
+### Tiårig sammenligningsgrunnlag for vær
 
-Systemet henter gradvis kvalitetssikret historisk vær fra SMHIs korrigerte arkiv. For Q3 brukes perioden **2016–2025** som et tiårig sammenligningsgrunnlag for:
+Systemet henter gradvis kvalitetssikret historisk vær fra SMHIs korrigerte arkiv. For Q3 brukes perioden **2016–2025** som et tiårig sammenligningsgrunnlag for lufttemperatur, vindhastighet og nedbør.
 
-- lufttemperatur
-- vindhastighet
-- nedbør
-- andel timer med sterk varme
-- andel timer med sterk vind
-- andel timer med nedbør
-
-Dette omtales som et **tiårig sammenligningsgrunnlag**, ikke som SMHIs offisielle klimanormal. En offisiell klimanormal bygger normalt på en lengre standardperiode.
-
-Arkivinnlastingen kjøres gradvis for å unngå store enkeltjobber. Én kombinasjon av værstasjon og værparameter behandles automatisk per time. Resultatet lagres som kompakte normalverdier for dagene i juli, august og september; hele råarkivet lagres ikke i databasen.
+Dette omtales som et **tiårig sammenligningsgrunnlag**, ikke som SMHIs offisielle klimanormal. Arkivinnlastingen kjøres gradvis. Én kombinasjon av værstasjon og værparameter behandles automatisk per time. Resultatet lagres som kompakte sammenligningstall for dagene i juli, august og september; hele råarkivet lagres ikke i databasen.
 
 Når nok arkivjobber er ferdige, kan `/api/climate/comparison` vise om de siste dagene har vært mer eller mindre arbeidsvennlige enn det tiårige grunnlaget.
 
-### 2. Bedre geografisk dekning
+### Bedre geografisk dekning
 
-Den løpende scoren for værbaserte arbeidsforhold bruker nå flere målestasjoner per kontrakt der de finnes. Avstand og rangering påvirker vektingen.
+Den løpende scoren for værbaserte arbeidsforhold bruker flere målestasjoner per kontrakt der de finnes. Avstand og rangering påvirker vektingen.
 
-Dette er en klar forbedring fra å bruke bare én stasjon, men geografien er fortsatt basert på representative midtpunkter for kontraktsområdene. Eksakte kontraktspolygoner bør legges inn senere dersom slike data blir tilgjengelige.
+Geografien er fortsatt basert på representative midtpunkter for kontraktsområdene. Eksakte kontraktspolygoner bør legges inn senere dersom slike data blir tilgjengelige.
+
+## Fase B – tilleggsarbeider, opsjoner og bestillinger
+
+Fase B er satt i gang. Målet er å fange opp dokumenterte aktivitetssignaler som kan gi informasjon om fremtidig arbeidsmengde og lønnsomhet uten å late som om hele ordreverdien blir kvartalsomsetning.
+
+### Første automatiske kilde
+
+Terranors offisielle svenske nyhetsside kontrolleres automatisk **hver sjette time**. Nye artikler klassifiseres som blant annet:
+
+- utløst opsjon
+- tilleggsarbeid
+- ny bestilling
+- ny hovedkontrakt
+- annen aktivitet
+
+Tydelige opsjoner, tilleggsarbeider og nye bestillinger fra den offisielle selskapskilden kan registreres automatisk som aktivitetssignaler. Nye hovedkontrakter blir i første omgang kandidater fordi de hører hjemme i kontraktsregisteret og ikke skal dobbelttelles som tilleggsarbeid.
+
+Systemet forsøker også å hente oppgitt ordreverdi og koble funnet til en kjent kontrakt når dette kan gjøres med rimelig sikkerhet.
+
+### Viktig modellregel
+
+Et ordre- eller aktivitetssignal blir **ikke automatisk omgjort til omsetning eller justert EBITA**. Tidspunkt for inntektsføring, margin og eventuell Q3-effekt må modelleres separat.
+
+Fase B har et eget kandidatregister slik at uklare funn kan vurderes, godkjennes eller ignoreres uten at råfunnet forsvinner.
+
+### Kilder som skal kobles på videre
+
+Neste trinn i fase B er å legge til mer direkte offentlige kilder fra Trafikverket og deretter relevante kommunale beslutnings- og bestillingskilder. Disse skal prioriteres fremfor usikre sekundærkilder.
 
 ## Nåværende status
 
@@ -75,6 +94,8 @@ Følgende er satt opp og i drift:
 - flerstasjonsdekning for værbaserte arbeidsforhold
 - kontraktsbro for Q3
 - register for tilleggsarbeider og andre signaler
+- automatisk overvåking av Terranors offisielle nyhetsside
+- kandidatregister for nye aktivitetssignaler
 - kvalitetskontroll av datainnsamlingen
 - historikk for beregnede scorer og estimater
 - egen statusside på `/status.html`
@@ -89,8 +110,6 @@ Cloudflare kjører en planlagt jobb hver time, 15 minutter over hel time:
 15 * * * *
 ```
 
-Det betyr at innsamlingen kjører hele døgnet uten at en lokal PC eller nettleser må stå på.
-
 Den timebaserte jobben kjører blant annet:
 
 1. nye svenske værmålinger
@@ -98,6 +117,7 @@ Den timebaserte jobben kjører blant annet:
 3. beregning av værbaserte arbeidsforhold
 4. gradvis innlasting av manglende 60-dagershistorikk
 5. gradvis bygging av tiårig sammenligningsgrunnlag for Q3-vær
+6. hver sjette time: kontroll av den aktive kilden for opsjoner, tilleggsarbeider og bestillinger
 
 ## Teknisk oppbygning
 
@@ -107,7 +127,7 @@ Noen produktnavn og tekniske navn kan ikke oversettes naturlig og beholdes derfo
 - **Cloudflare D1:** databasen som lagrer kontrakter, værmålinger, signaler og historikk.
 - **Workers Static Assets:** de statiske filene som utgjør nettsiden.
 - **Cron:** teknisk navn på tidsplanen som starter den automatiske jobben hver time.
-- **API:** grensesnittet som nettsiden og testadressene bruker for å hente data fra bakgrunnstjenesten.
+- **API:** grensesnittet som nettsiden og kontrolladressene bruker for å hente data fra bakgrunnstjenesten.
 
 ## Mappestruktur
 
@@ -121,8 +141,9 @@ src/workability.js  Værbaserte arbeidsforhold
 src/backfill.js     60-dagers historisk innlasting
 src/climate.js      Tiårig sammenligningsgrunnlag fra SMHI
 src/geography.js    Kontroll av geografisk værdekning
+src/activity.js     Fase B: opsjoner, tilleggsarbeider og bestillinger
 src/bridge.js       Kontraktsbro for Q3
-src/signals.js      Tilleggsarbeider og andre aktivitetssignaler
+src/signals.js      Register over aktivitetssignaler
 src/quality.js      Kvalitetskontroll
 db/                 Databaseskjema
 wrangler.jsonc      Cloudflare-oppsett
@@ -131,30 +152,32 @@ package.json        Tekniske kommandoer
 
 ## Viktige API-adresser
 
-Disse adressene brukes hovedsakelig til kontroll og feilsøking. Navnene beholdes i koden selv om nettsiden bruker norske forklaringer.
-
 ```text
-/api/health                 Grunnleggende status
-/api/status                 Samlet status for datainnsamlingen
-/api/contracts              Kontraktsregister
-/api/weather/contracts      Svenske værstasjoner per kontrakt
-/api/vvis/contracts         Veiværstasjoner per kontrakt
-/api/workability            Værbaserte arbeidsforhold
-/api/workability/history    Historikk for arbeidsforhold
-/api/backfill/smhi/status   Status for 60-dagers værhistorikk
-/api/climate/status         Status for tiårig sammenligningsgrunnlag
-/api/climate/run            Kjør neste historiske arkivjobb manuelt
-/api/climate/comparison     Vær mot tiårig sammenligningsgrunnlag
-/api/geography              Geografisk dekning per kontrakt
-/api/contract-bridge        Kontraktsbro for Q3
-/api/signals                Tilleggsarbeider og andre aktivitetssignaler
-/api/data-quality           Kvalitetskontroll
+/api/health                  Grunnleggende status
+/api/status                  Samlet status for datainnsamlingen
+/api/contracts               Kontraktsregister
+/api/weather/contracts       Svenske værstasjoner per kontrakt
+/api/vvis/contracts          Veiværstasjoner per kontrakt
+/api/workability             Værbaserte arbeidsforhold
+/api/workability/history     Historikk for arbeidsforhold
+/api/backfill/smhi/status    Status for 60-dagers værhistorikk
+/api/climate/status          Status for tiårig sammenligningsgrunnlag
+/api/climate/run             Kjør neste historiske arkivjobb manuelt
+/api/climate/comparison      Vær mot tiårig sammenligningsgrunnlag
+/api/geography               Geografisk dekning per kontrakt
+/api/activity/run            Kjør fase B-overvåkingen manuelt
+/api/activity/status         Status for fase B og registrerte signaler
+/api/activity/candidates     Nye kandidater fra overvåkede kilder
+/api/activity/review         Godkjenn eller ignorer en kandidat
+/api/contract-bridge         Kontraktsbro for Q3
+/api/signals                 Registrerte aktivitetssignaler
+/api/data-quality            Kvalitetskontroll
 ```
 
 ## Arbeidsplan frem mot Q3 2026
 
 1. **Fase A – pågår:** fullfør tiårig værgrunnlag og forbedre geografisk dekning.
-2. Fyll signalregisteret med dokumenterte tilleggsarbeider og nye bestillinger.
+2. **Fase B – pågår:** bygg ut kildeovervåkingen for tilleggsarbeider, opsjoner og offentlige bestillinger.
 3. Koble danske og finske værdata til relevante kontrakter.
 4. Etter Q2-rapporten: sammenlign den låste Q2-modellen med faktiske tall.
 5. Kalibrer modellen én gang og dokumenter endringene.
@@ -162,8 +185,6 @@ Disse adressene brukes hovedsakelig til kontroll og feilsøking. Navnene beholde
 7. Sammenlign det låste Q3-estimatet med markedets forventninger og faktiske Q3-tall.
 
 ## Lokale kommandoer
-
-Disse er kun relevante ved lokal utvikling:
 
 ```bash
 npm install
