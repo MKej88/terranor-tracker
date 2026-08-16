@@ -16,6 +16,14 @@ Systemet følger flere typer informasjon som kan påvirke Terranors omsetning og
 - **Løpende resultatestimat:** omsetning, justert EBITA og etter hvert avvik mot markedets forventninger.
 - **Historikk:** gamle estimater beholdes i stedet for å overskrives, slik at modellen kan etterprøves i ettertid.
 
+## Sider
+
+- `/` – hovedside for resultatestimatet.
+- `/status.html` – kort drifts- og datastatus for kontrakter, vær, historikk og datakvalitet.
+- `/fase-b.html` – egen arbeidsflate for Fase B med kilder, nye kandidater og registrerte aktivitetssignaler.
+
+Statussiden er bevisst holdt kort. Detaljene for opsjoner, tilleggsarbeider og bestillinger ligger på Fase B-siden for å unngå unødvendig scrolling.
+
 ## Forklaring av værkildene
 
 Forkortelsene brukes i koden og i enkelte API-adresser, men på nettsiden vises mer forklarende navn.
@@ -54,6 +62,20 @@ Geografien er fortsatt basert på representative midtpunkter for kontraktsområd
 ## Fase B – tilleggsarbeider, opsjoner og bestillinger
 
 Fase B er satt i gang. Målet er å fange opp dokumenterte aktivitetssignaler som kan gi informasjon om fremtidig arbeidsmengde og lønnsomhet uten å late som om hele ordreverdien blir kvartalsomsetning.
+
+### Egen Fase B-side
+
+`/fase-b.html` er hovedsiden for Fase B. Den viser:
+
+- aktive og planlagte kilder
+- når kildene sist ble kontrollert
+- nye funn som venter på vurdering
+- mulig kontraktskobling og oppgitt verdi
+- relevans for funnet
+- registrerte opsjoner, tilleggsarbeider og bestillinger
+- lenke tilbake til originalkilden
+
+Nye kandidater kan godkjennes eller ignoreres direkte på siden. Det finnes også en knapp for å kjøre et nytt kildesøk manuelt.
 
 ### Første automatiske kilde
 
@@ -98,7 +120,8 @@ Følgende er satt opp og i drift:
 - kandidatregister for nye aktivitetssignaler
 - kvalitetskontroll av datainnsamlingen
 - historikk for beregnede scorer og estimater
-- egen statusside på `/status.html`
+- kort statusside på `/status.html`
+- egen Fase B-side på `/fase-b.html`
 
 Danske og finske værkilder er planlagt, men ikke koblet til ennå.
 
@@ -132,22 +155,25 @@ Noen produktnavn og tekniske navn kan ikke oversettes naturlig og beholdes derfo
 ## Mappestruktur
 
 ```text
-public/             Nettsiden og statussiden
-src/index.js        Grunnleggende API, innlogging og timebasert innsamling
-src/index2.js       Utvidede API-funksjoner
-src/weather.js      Vanlige svenske værdata
-src/vvis.js         Veivær fra Trafikverket
-src/workability.js  Værbaserte arbeidsforhold
-src/backfill.js     60-dagers historisk innlasting
-src/climate.js      Tiårig sammenligningsgrunnlag fra SMHI
-src/geography.js    Kontroll av geografisk værdekning
-src/activity.js     Fase B: opsjoner, tilleggsarbeider og bestillinger
-src/bridge.js       Kontraktsbro for Q3
-src/signals.js      Register over aktivitetssignaler
-src/quality.js      Kvalitetskontroll
-db/                 Databaseskjema
-wrangler.jsonc      Cloudflare-oppsett
-package.json        Tekniske kommandoer
+public/index.html    Hovedsiden
+public/status.html   Kort drifts- og datastatus
+public/fase-b.html   Fase B: tilleggsarbeider og bestillinger
+public/fase-b.js     Visning og behandling av Fase B-funn
+src/index.js         Grunnleggende API, innlogging og timebasert innsamling
+src/index2.js        Utvidede API-funksjoner
+src/weather.js       Vanlige svenske værdata
+src/vvis.js          Veivær fra Trafikverket
+src/workability.js   Værbaserte arbeidsforhold
+src/backfill.js      60-dagers historisk innlasting
+src/climate.js       Tiårig sammenligningsgrunnlag fra SMHI
+src/geography.js     Kontroll av geografisk værdekning
+src/activity.js      Fase B: opsjoner, tilleggsarbeider og bestillinger
+src/bridge.js        Kontraktsbro for Q3
+src/signals.js       Register over aktivitetssignaler
+src/quality.js       Kvalitetskontroll
+db/                  Databaseskjema
+wrangler.jsonc       Cloudflare-oppsett
+package.json         Tekniske kommandoer
 ```
 
 ## Viktige API-adresser
@@ -176,7 +202,7 @@ package.json        Tekniske kommandoer
 
 ## Arbeidsplan frem mot Q3 2026
 
-1. **Fase A – pågår:** fullfør tiårig værgrunnlag og forbedre geografisk dekning.
+1. **Fase A – pågår:** fullfør tiårig værgrunnlag og sluttkontroll av geografisk dekning.
 2. **Fase B – pågår:** bygg ut kildeovervåkingen for tilleggsarbeider, opsjoner og offentlige bestillinger.
 3. Koble danske og finske værdata til relevante kontrakter.
 4. Etter Q2-rapporten: sammenlign den låste Q2-modellen med faktiske tall.
