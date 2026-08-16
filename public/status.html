@@ -13,10 +13,11 @@
         <div>
           <p class="eyebrow">DRIFTSSTATUS</p>
           <h1>Status</h1>
-          <p class="lede">Kort oversikt over datainnhenting, historikk og kvalitet. Detaljene for tilleggsarbeider og bestillinger ligger på en egen Fase B-side.</p>
+          <p class="lede">Kort oversikt over datainnhenting, historikk og kvalitet. Fase B og Fase C har egne detaljsider.</p>
           <nav class="page-nav">
             <a href="/">← Hovedsiden</a>
             <a href="/fase-b.html">Fase B</a>
+            <a href="/fase-c.html">Fase C</a>
             <button id="refresh-button" type="button">Oppdater nå</button>
           </nav>
         </div>
@@ -124,18 +125,32 @@
         </article>
       </section>
 
-      <section class="panel status-panel-gap phase-link-panel">
-        <div class="panel-head phase-link-head">
-          <div>
-            <p class="eyebrow">FASE B</p>
-            <h2>Tilleggsarbeider og bestillinger</h2>
-            <p class="status-note no-top-margin">Detaljer, kandidater og registrerte aktivitetssignaler er flyttet til en egen side.</p>
+      <section class="grid two status-panel-gap">
+        <article class="panel phase-link-panel">
+          <div class="panel-head phase-link-head">
+            <div>
+              <p class="eyebrow">FASE B</p>
+              <h2>Tilleggsarbeider</h2>
+            </div>
+            <a class="nav-link" href="/fase-b.html">Åpne →</a>
           </div>
-          <a class="nav-link" href="/fase-b.html">Åpne Fase B →</a>
-        </div>
-        <div class="status-list" id="phase-b-summary">
-          <div class="status-row"><span>Henter Fase B-status…</span><b>—</b></div>
-        </div>
+          <div class="status-list" id="phase-b-summary">
+            <div class="status-row"><span>Henter status…</span><b>—</b></div>
+          </div>
+        </article>
+
+        <article class="panel phase-link-panel">
+          <div class="panel-head phase-link-head">
+            <div>
+              <p class="eyebrow">FASE C</p>
+              <h2>Danmark og Finland</h2>
+            </div>
+            <a class="nav-link" href="/fase-c.html">Åpne →</a>
+          </div>
+          <div class="status-list" id="phase-c-summary">
+            <div class="status-row"><span>Henter status…</span><b>—</b></div>
+          </div>
+        </article>
       </section>
 
       <section class="panel status-panel-gap">
@@ -151,7 +166,7 @@
       </section>
 
       <details class="panel status-panel-gap compact-details">
-        <summary>Vis detaljert dekning per værkilde</summary>
+        <summary>Vis detaljert dekning per svensk værkilde</summary>
         <div class="table-wrap details-content">
           <table class="status-table">
             <thead>
