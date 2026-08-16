@@ -3,12 +3,12 @@ import { ensureNordicSchema } from "./nordic.js";
 const FMI_WFS_URL = "https://opendata.fmi.fi/wfs";
 const CONCURRENCY = 4;
 
-// FMI accepts a region after the place name, separated by a comma. These three
-// labels were ambiguous or not directly resolvable in the first expanded test.
+// Tre kontraktsområder ga ikke stabile direkte stedsoppslag i FMI. For disse
+// brukes eksplisitte, dokumenterte værproxyer som også lagres i target-tabellen.
 const PLACE_OVERRIDES = {
-  "Järvenpää": "Järvenpää,Uusimaa",
-  "Vuosaari": "Vuosaari,Helsinki",
-  "Raasepori": "Raseborg,Raasepori",
+  "Järvenpää": "Mäntsälä",
+  "Vuosaari": "Helsinki",
+  "Raasepori": "Hanko",
 };
 
 function numeric(value) {
@@ -99,7 +99,7 @@ async function fetchTarget(target) {
     parameters: "temperature,windspeedms,humidity,precipitation1h",
   });
   const response = await fetch(`${FMI_WFS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/1.0", "accept": "application/xml,text/xml" },
+    headers: { "user-agent": "Terranor-Tracker/1.1", "accept": "application/xml,text/xml" },
   });
   if (!response.ok) {
     const body = await response.text();
@@ -229,7 +229,7 @@ export async function runFmiWeather(db) {
       finishedAt,
       ok: status === "ok",
       concurrency: CONCURRENCY,
-      method: "FMI timevaluepair for navngitte kontraktssteder. Tvetydige steder presiseres med region, og områder hentes parallelt i små grupper.",
+      method: "FMI timevaluepair for navngitte kontraktssteder. Når FMI ikke gir stabilt direkte stedsoppslag, brukes en eksplisitt dokumentert nærliggende værproxy.",
     };
   } catch (error) {
     const finishedAt = new Date().toISOString();
