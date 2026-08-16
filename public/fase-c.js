@@ -40,16 +40,45 @@ async function getJson(url) {
 
 function sourceStatusRows(source) {
   const run = source?.lastRun;
+  const statusText = run?.status === "ok" ? "OK" : run?.status === "partial" ? "delvis" : run?.status === "error" ? "feil" : "venter";
   return [
     `<div class="status-row"><span>Siste kjøring</span><b>${run?.finished_at ? `${formatTime(run.finished_at)} · ${formatAge(run.finished_at)}` : "ikke kjørt ennå"}</b></div>`,
-    `<div class="status-row"><span>Status</span><b class="${run?.status === "ok" ? "text-good" : run ? "text-warn" : ""}">${run?.status === "ok" ? "OK" : run?.status === "error" ? "feil" : "venter"}</b></div>`,
+    `<div class="status-row"><span>Status</span><b class="${run?.status === "ok" ? "text-good" : run ? "text-warn" : ""}">${statusText}</b></div>`,
     `<div class="status-row"><span>Områder forsøkt</span><b>${formatNumber(run?.targets_attempted || 0)}</b></div>`,
     `<div class="status-row"><span>Områder fullført</span><b>${formatNumber(run?.targets_completed || 0)}</b></div>`,
     `<div class="status-row"><span>Målinger skrevet sist</span><b>${formatNumber(run?.observations_written || 0)}</b></div>`,
   ].join("");
 }
 
-function render(status) {
+function renderBackfill(backfill) {
+  const pct = Math.max(0, Math.min(100, Number(backfill?.progressPct || 0)));
+  document.querySelector("#backfill-progress").style.width = `${pct}%`;
+  document.querySelector("#backfill-detail").textContent = backfill?.targets
+    ? `${backfill.targetsComplete} av ${backfill.targets} værankere har minst ${backfill.days} dager med historikk. Samlet fremdrift er ${pct} %. Historikken fylles automatisk bakover hver time.`
+    : "Venter på at værankrene skal bli koblet til målestasjoner.";
+  const pill = document.querySelector("#backfill-pill");
+  pill.classList.remove("ok");
+  if (backfill?.complete) {
+    pill.textContent = "ferdig";
+    pill.classList.add("ok");
+  } else {
+    pill.textContent = `${pct} %`;
+  }
+
+  const sourceRows = ["DMI", "FMI"].map((source) => {
+    const rows = (backfill?.targetStatus || []).filter((x) => x.source === source);
+    const done = rows.filter((x) => x.complete).length;
+    const avg = rows.length ? Math.round(rows.reduce((sum, x) => sum + Number(x.covered_days || 0), 0) / rows.length) : 0;
+    return `<div class="status-row"><span>${sourceName(source)}</span><b>${done}/${rows.length} ferdige · ca. ${avg} dager i snitt</b></div>`;
+  });
+  const latest = backfill?.latestRun;
+  if (latest) {
+    sourceRows.push(`<div class="status-row"><span>Siste historikkjobb</span><b>${latest.label || "—"} · ${latest.status === "ok" ? "OK" : "feil"} · ${formatNumber(latest.observations_written || 0)} målinger</b></div>`);
+  }
+  document.querySelector("#backfill-list").innerHTML = sourceRows.join("");
+}
+
+function render(status, backfill) {
   const denmark = status?.countries?.Denmark || {};
   const finland = status?.countries?.Finland || {};
   const dmi = status?.sources?.DMI || {};
@@ -66,8 +95,8 @@ function render(status) {
 
   document.querySelector("#dmi-status").innerHTML = sourceStatusRows(dmi);
   document.querySelector("#fmi-status").innerHTML = sourceStatusRows(fmi);
-  document.querySelector("#dmi-pill").textContent = dmi.status === "ok" ? "aktiv" : dmi.status === "error" ? "feil" : "klar for test";
-  document.querySelector("#fmi-pill").textContent = fmi.status === "ok" ? "aktiv" : fmi.status === "error" ? "feil" : "klar for test";
+  document.querySelector("#dmi-pill").textContent = dmi.status === "ok" ? "aktiv" : dmi.status === "partial" ? "delvis" : dmi.status === "error" ? "feil" : "klar for test";
+  document.querySelector("#fmi-pill").textContent = fmi.status === "ok" ? "aktiv" : fmi.status === "partial" ? "delvis" : fmi.status === "error" ? "feil" : "klar for test";
 
   const targets = status?.targets || [];
   document.querySelector("#target-body").innerHTML = targets.length ? targets.map((row) => `
@@ -90,23 +119,29 @@ function render(status) {
     <div class="problem-row"><div><b>Avgrensning</b><span>${text}</span></div></div>
   `).join("") : `<div class="empty-good"><b>Ingen kjente avgrensninger</b></div>`;
 
+  renderBackfill(backfill);
+
   const sourceHealthy = [dmi, fmi].filter((x) => x.status === "ok").length;
   const pill = document.querySelector("#phase-pill");
   pill.classList.remove("ok");
   if (sourceHealthy === 2) {
-    pill.textContent = "Begge land samler data";
+    pill.textContent = backfill?.complete ? "Begge land + historikk klare" : "Begge land samler data";
     pill.classList.add("ok");
   } else if (sourceHealthy === 1) {
     pill.textContent = "Én kilde er i drift";
   } else {
     pill.textContent = "Klar for første test";
   }
-  document.querySelector("#updated-line").textContent = `Siden ble oppdatert ${formatTime(new Date().toISOString())}. Fase C kjøres automatisk hver time etter at deploymenten er aktiv.`;
+  document.querySelector("#updated-line").textContent = `Siden ble oppdatert ${formatTime(new Date().toISOString())}. Live-data og historikk fortsetter automatisk hver time.`;
 }
 
 async function load() {
   try {
-    render(await getJson("/api/nordic/status"));
+    const [status, backfill] = await Promise.all([
+      getJson("/api/nordic/status"),
+      getJson("/api/nordic/backfill/status"),
+    ]);
+    render(status, backfill);
   } catch (error) {
     document.querySelector("#phase-pill").textContent = "Kunne ikke hente status";
     document.querySelector("#updated-line").textContent = `Feil: ${error.message}`;
@@ -132,7 +167,25 @@ async function runCountry(country, button) {
   }
 }
 
+async function runBackfill(button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Fyller historikk…";
+  try {
+    const result = await getJson("/api/nordic/backfill/run?days=60&tasks=2");
+    const failed = (result?.details || []).filter((x) => x.status === "feil");
+    button.textContent = failed.length ? `${failed.length} feil – se status` : result.tasksAttempted ? "Historikkbit ferdig" : "All historikk er ferdig";
+    await load();
+  } catch (error) {
+    button.textContent = "Feil – prøv igjen";
+    document.querySelector("#updated-line").textContent = `Historikkinnlasting feilet: ${error.message}`;
+  } finally {
+    setTimeout(() => { button.disabled = false; button.textContent = original; }, 1800);
+  }
+}
+
 document.querySelector("#run-denmark").addEventListener("click", (event) => runCountry("Denmark", event.currentTarget));
 document.querySelector("#run-finland").addEventListener("click", (event) => runCountry("Finland", event.currentTarget));
+document.querySelector("#run-backfill").addEventListener("click", (event) => runBackfill(event.currentTarget));
 document.querySelector("#refresh-button").addEventListener("click", load);
 load();
