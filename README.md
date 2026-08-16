@@ -72,7 +72,7 @@ Et ordre- eller aktivitetssignal blir **ikke automatisk omgjort til omsetning el
 
 ## Fase C – Danmark og Finland
 
-Fase C bygger meteorologisk datagrunnlag for danske og finske kontraktsområder. De levende datakjedene for både Danmark og Finland er teknisk validert. Neste del er å bygge historikk og forbedre kontraktsdekningen.
+Fase C bygger meteorologisk datagrunnlag for danske og finske kontraktsområder. De levende datakjedene for både Danmark og Finland er teknisk validert. Historikk og bredere geografisk dekning bygges nå videre.
 
 ### Danmark
 
@@ -83,35 +83,29 @@ Systemet bruker DMI sitt åpne API for meteorologiske observasjoner. For hvert d
 - relativ luftfuktighet
 - nedbør siste time
 
-De aktive værankrene er **Ikast-Brande, Tønder og København**. København-kontrakten starter først i 2027, men datagrunnlaget bygges opp på forhånd.
+De direkte kontraktsankrene er **Ikast-Brande, Tønder og København**. Den første valideringen ga fullført innhenting for alle tre, med Isenvad, Store Jyndevad og Københavns Lufthavn som valgte målestasjoner.
 
-Den manuelle valideringen ga fullført innhenting for alle tre områder. Systemet valgte Isenvad for Ikast-Brande, Store Jyndevad for Tønder og Københavns Lufthavn for København.
-
-Danmarks fire nye statlige sommerkontrakter ligger fortsatt aggregert i modellgrunnlaget og er ikke splittet i fire separate geografiske kontraktsrader. Dette er den viktigste gjenværende geografiske oppgaven i Danmark.
+Vejdirektoratets statlige 2026-2029-ramme består av fem geografiske områder: to i Norddanmark, ett i Syddanmark og to i Østdanmark. Terranor vant alle unntatt Syddanmark. Trackeren har derfor fire ekstra **regionale værproxyer** for Terranors statlige områder. Proxyene dekker Norddanmark/Midtjylland og Østdanmark, men skal erstattes av eksakte delkontraktsgrenser når anbudsdokumentene er hentet.
 
 ### Finland
 
-Systemet bruker FMI sin åpne WFS-tjeneste. De aktive værankrene er:
+Systemet bruker FMI sin åpne WFS-tjeneste. Den opprinnelige kjeden for **Kemi, Ii og Sørøst-Finland** er manuelt validert uten feil, og **Järvenpää** er lagt til etter Q1-meldingen om den nye kommunale kontrakten.
 
-- Kemi
-- Ii
-- Järvenpää
-- Sørøst-Finland, med Lappeenranta som eksplisitt regional proxy for det kjente dreneringsarbeidet
+I tillegg er geografien utvidet med Terranor Oys offentlig listede referanseområder der den oppgitte kontraktsperioden inkluderer 2026. Det omfatter blant annet Kuhmo, Mikkeli, Vuosaari, Kajaani, Kangasniemi, Kauhajoki, Pieksämäki, Suomussalmi, Hollola, Jyväskylä, Keuruu, Lahti, Rovaniemi, Sastamala og Raasepori. Kemi ligger allerede i grunnsettet.
 
-Kemi og Ii starter 1. oktober 2026. Järvenpää er lagt inn som en kommunal kontrakt på 116 MSEK over fire år med oppstart 1. oktober 2026.
+Disse områdene brukes først og fremst til **værdekning**. Kontraktsverdi og årlig omsetningstakt er ikke dokumentert i trackeren for alle områdene, og de blir derfor ikke økonomisk vektet uten videre.
 
-Den manuelle FMI-valideringen for Kemi, Ii og Sørøst-Finland ble fullført uten feil. Järvenpää kobles til nærmeste FMI-observasjonsstasjon ved neste finske innhenting etter at den nye versjonen er aktiv.
-
-Terranor har en større eksisterende finsk portefølje enn de navngitte områdene som foreløpig ligger i trackeren. Fase C er derfor **ikke full Finland-dekning ennå**.
+FMI-innhentingen er bygget om slik at flere finske steder kan hentes parallelt i små grupper, slik at den bredere geografien ikke gjør den timebaserte jobben unødvendig treg.
 
 ### 60-dagers historikk
 
-Fase C har nå egen progressiv historikkinnlasting for Danmark og Finland.
+Fase C har egen progressiv historikkinnlasting for Danmark og Finland.
 
 - Danmark fylles bakover i **7-dagersblokker**.
 - Finland fylles bakover i **14-dagersblokker**.
 - Systemet prioriterer områder med minst historisk dekning.
 - Det forsøkes normalt én dansk og én finsk historikkjobb per time så lenge begge land mangler data.
+- Når ett land er ferdig, kan ledig kapasitet brukes på det andre.
 - Historikken lagres i den samme observasjonstabellen som live-data og overskriver ikke andre kilder.
 
 `/fase-c.html` viser samlet fremdrift, antall ferdige værankere, gjennomsnittlig antall historiske dager per land og siste historikkjobb. Knappen **Fyll historikk nå** kan brukes til en manuell delkjøring.
@@ -135,8 +129,10 @@ Følgende er satt opp eller i aktiv innsamling:
 - automatisk overvåking av Terranors offisielle nyhetsside
 - validert levende DMI-innsamling for Danmark
 - validert levende FMI-innsamling for Finland
-- progressive 60-dagershistorikk for Danmark og Finland
-- danske og finske værankere, inkludert Järvenpää
+- fire regionale DMI-proxyer for Terranors danske statlige 2026-2029-områder
+- utvidet Finland-geografi basert på Terranor Oys offentlige referanseliste
+- parallell FMI-innhenting for flere finske områder
+- progressiv 60-dagershistorikk for Danmark og Finland
 - egen Fase B-side og egen Fase C-side
 - kvalitetskontroll og historikk
 
@@ -171,32 +167,34 @@ Den timebaserte jobben kjører blant annet:
 ## Mappestruktur
 
 ```text
-public/index.html            Hovedsiden
-public/status.html           Kort drifts- og datastatus
-public/fase-b.html           Fase B
-public/fase-b.js             Fase B-visning og behandling
-public/fase-c.html           Fase C – Danmark og Finland
-public/fase-c.js             Fase C-status, historikk og manuelle kjøringer
-src/index.js                 Grunnleggende API og svensk innsamling
-src/index2.js                Utvidede API-funksjoner og planlagte jobber
-src/weather.js               Vanlige svenske værdata
-src/vvis.js                  Veivær fra Trafikverket
-src/workability.js           Værbaserte arbeidsforhold
-src/backfill.js              60-dagers svensk historikk
-src/climate.js               Tiårig svensk sammenligningsgrunnlag
-src/geography.js             Svensk geografisk værdekning
-src/activity.js              Fase B-kildeovervåking
-src/nordic.js                Fase C – grunnskjema og finsk innsamling
-src/dmi.js                   Fase C – dansk DMI-innsamling
-src/nordic-contracts.js      Fase C-kontrakter som manglet i grunnregisteret
-src/nordic-extra-targets.js  Ekstra værankere, blant annet Järvenpää
-src/nordic-backfill.js       Progressiv 60-dagershistorikk for Danmark/Finland
-src/bridge.js                Kontraktsbro for Q3
-src/signals.js               Aktivitetssignaler
-src/quality.js               Kvalitetskontroll
-db/                          Databaseskjema
-wrangler.jsonc               Cloudflare-oppsett
-package.json                 Tekniske kommandoer
+public/index.html              Hovedsiden
+public/status.html             Kort drifts- og datastatus
+public/fase-b.html             Fase B
+public/fase-b.js               Fase B-visning og behandling
+public/fase-c.html             Fase C – Danmark og Finland
+public/fase-c.js               Fase C-status, historikk og manuelle kjøringer
+src/index.js                   Grunnleggende API og svensk innsamling
+src/index2.js                  Utvidede API-funksjoner og planlagte jobber
+src/weather.js                 Vanlige svenske værdata
+src/vvis.js                    Veivær fra Trafikverket
+src/workability.js             Værbaserte arbeidsforhold
+src/backfill.js                60-dagers svensk historikk
+src/climate.js                 Tiårig svensk sammenligningsgrunnlag
+src/geography.js               Svensk geografisk værdekning
+src/activity.js                Fase B-kildeovervåking
+src/nordic.js                  Fase C – grunnskjema og status
+src/dmi.js                     Fase C – dansk DMI-innsamling
+src/fmi.js                     Fase C – parallell finsk FMI-innsamling
+src/nordic-contracts.js        Fase C-kontrakter som manglet i grunnregisteret
+src/nordic-extra-targets.js    Finske værankere og porteføljereferanser
+src/nordic-denmark-targets.js  Regionale værproxyer for danske statskontrakter
+src/nordic-backfill.js         Progressiv 60-dagershistorikk for Danmark/Finland
+src/bridge.js                  Kontraktsbro for Q3
+src/signals.js                 Aktivitetssignaler
+src/quality.js                 Kvalitetskontroll
+db/                            Databaseskjema
+wrangler.jsonc                 Cloudflare-oppsett
+package.json                   Tekniske kommandoer
 ```
 
 ## Viktige API-adresser
@@ -231,7 +229,7 @@ package.json                 Tekniske kommandoer
 
 1. **Fase A – pågår:** fullfør historikk og sluttvalider geografisk dekning.
 2. **Fase B – pågår:** bygg ut offentlige kilder for tilleggsarbeider og bestillinger.
-3. **Fase C – pågår:** fyll 60-dagershistorikk og utvid kontraktsgeografien i Danmark og Finland.
+3. **Fase C – pågår:** fyll 60-dagershistorikk, valider de utvidede finske områdene og erstatt danske regionale proxyer med eksakte delkontraktsgrenser.
 4. Etter Q2-rapporten: sammenlign den låste Q2-modellen med faktiske tall.
 5. Kalibrer modellen én gang og dokumenter endringene.
 6. Lås Q3-metodikken og lagre alle senere estimater uten overskriving.
