@@ -3,6 +3,14 @@ import { ensureNordicSchema } from "./nordic.js";
 const FMI_WFS_URL = "https://opendata.fmi.fi/wfs";
 const CONCURRENCY = 4;
 
+// FMI accepts a region after the place name, separated by a comma. These three
+// labels were ambiguous or not directly resolvable in the first expanded test.
+const PLACE_OVERRIDES = {
+  "Järvenpää": "Järvenpää,Uusimaa",
+  "Vuosaari": "Vuosaari,Helsinki",
+  "Raasepori": "Raseborg,Raasepori",
+};
+
 function numeric(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -17,6 +25,10 @@ function xmlDecode(value) {
     .replaceAll("&#39;", "'");
 }
 
+function queryPlace(target) {
+  return PLACE_OVERRIDES[target.label] || target.location_name;
+}
+
 function fmiParameterFromMember(member) {
   const href = member.match(/observedProperty[^>]+(?:xlink:href|href)=["']([^"']+)["']/i)?.[1] || "";
   const name = member.match(/<gml:name[^>]*>([\s\S]*?)<\/gml:name>/i)?.[1] || "";
@@ -28,11 +40,11 @@ function fmiParameterFromMember(member) {
   return null;
 }
 
-function parseFmiTimeValuePair(xml, target) {
+function parseFmiTimeValuePair(xml, target, requestedPlace) {
   const rows = new Map();
   const members = String(xml || "").split(/<wfs:member\b/i).slice(1);
-  let detectedStationId = target.station_id || null;
-  let detectedStationName = target.station_name || target.location_name;
+  let detectedStationId = null;
+  let detectedStationName = null;
 
   for (const memberRaw of members) {
     const member = `<wfs:member ${memberRaw}`;
@@ -55,7 +67,7 @@ function parseFmiTimeValuePair(xml, target) {
         precipitation_mm: null,
         wind_ms: null,
         humidity_pct: null,
-        raw: { fmi: true, location: target.label, requestedPlace: target.location_name },
+        raw: { fmi: true, location: target.label, requestedPlace },
       };
       row[field] = value;
       rows.set(observed, row);
@@ -63,9 +75,10 @@ function parseFmiTimeValuePair(xml, target) {
   }
 
   return {
-    station_id: detectedStationId || `place:${target.location_name}`,
-    station_name: detectedStationName || target.location_name,
+    station_id: detectedStationId,
+    station_name: detectedStationName,
     rows: [...rows.values()],
+    requested_place: requestedPlace,
   };
 }
 
@@ -73,27 +86,31 @@ async function fetchTarget(target) {
   const end = new Date();
   const start = new Date(end.getTime() - 26 * 3600000);
   start.setUTCMinutes(0, 0, 0);
+  const requestedPlace = queryPlace(target);
   const params = new URLSearchParams({
     service: "WFS",
     version: "2.0.0",
     request: "getFeature",
     storedquery_id: "fmi::observations::weather::timevaluepair",
-    place: target.location_name,
+    place: requestedPlace,
     starttime: start.toISOString(),
     endtime: end.toISOString(),
     timestep: "60",
     parameters: "temperature,windspeedms,humidity,precipitation1h",
   });
   const response = await fetch(`${FMI_WFS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/0.9", "accept": "application/xml,text/xml" },
+    headers: { "user-agent": "Terranor-Tracker/1.0", "accept": "application/xml,text/xml" },
   });
-  if (!response.ok) throw new Error(`FMI ${target.location_name} feilet: ${response.status}`);
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`FMI ${requestedPlace} feilet: ${response.status} ${body.slice(0, 180)}`);
+  }
   const xml = await response.text();
   if (/ExceptionReport|ExceptionText/i.test(xml)) {
     const message = xml.match(/<[^>]*ExceptionText[^>]*>([\s\S]*?)<\/[^>]*ExceptionText>/i)?.[1];
-    throw new Error(`FMI svarte med feil for ${target.location_name}: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
+    throw new Error(`FMI svarte med feil for ${requestedPlace}: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
   }
-  return parseFmiTimeValuePair(xml, target);
+  return parseFmiTimeValuePair(xml, target, requestedPlace);
 }
 
 function observationStatement(db, target, stationId, row) {
@@ -114,17 +131,16 @@ function observationStatement(db, target, stationId, row) {
 }
 
 async function persistTarget(db, target, parsed) {
+  if (!parsed.station_id || !parsed.rows.length) return 0;
   await db.prepare(`UPDATE nordic_weather_targets SET station_id=?, station_name=?, distance_km=NULL,
       last_linked_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-    .bind(String(parsed.station_id), parsed.station_name, new Date().toISOString(), target.id).run();
+    .bind(String(parsed.station_id), parsed.station_name || parsed.station_id, new Date().toISOString(), target.id).run();
 
   let written = 0;
   for (let i = 0; i < parsed.rows.length; i += 50) {
     const chunk = parsed.rows.slice(i, i + 50);
-    if (chunk.length) {
-      await db.batch(chunk.map((row) => observationStatement(db, target, parsed.station_id, row)));
-      written += chunk.length;
-    }
+    await db.batch(chunk.map((row) => observationStatement(db, target, parsed.station_id, row)));
+    written += chunk.length;
   }
   return written;
 }
@@ -156,7 +172,7 @@ export async function runFmiWeather(db) {
     VALUES ('FMI', ?, 'running') RETURNING id`).bind(startedAt).first();
   const targetResult = await db.prepare(`SELECT * FROM nordic_weather_targets WHERE active=1 AND source='FMI' ORDER BY id`).all();
   const targets = targetResult?.results || [];
-  const result = { attempted: targets.length, completed: 0, written: 0, details: [] };
+  const result = { attempted: targets.length, completed: 0, noData: 0, written: 0, details: [] };
 
   try {
     const fetched = await mapWithConcurrency(targets, CONCURRENCY, async (target) => ({
@@ -172,15 +188,26 @@ export async function runFmiWeather(db) {
         continue;
       }
       try {
+        if (!item.parsed.rows.length || !item.parsed.station_id) {
+          result.noData += 1;
+          result.details.push({
+            label: target.label,
+            requested_place: item.parsed.requested_place,
+            observations_written: 0,
+            status: "ingen_data",
+          });
+          continue;
+        }
         const written = await persistTarget(db, target, item.parsed);
         result.completed += 1;
         result.written += written;
         result.details.push({
           label: target.label,
+          requested_place: item.parsed.requested_place,
           station_id: String(item.parsed.station_id),
           station_name: item.parsed.station_name,
           observations_written: written,
-          status: item.parsed.rows.length ? "ok" : "ingen_data",
+          status: "ok",
         });
       } catch (error) {
         result.details.push({ label: target.label, status: "feil", error: String(error?.message || error) });
@@ -193,7 +220,7 @@ export async function runFmiWeather(db) {
       await db.prepare(`UPDATE nordic_weather_runs SET finished_at=?, status=?, targets_attempted=?,
           targets_completed=?, observations_written=?, error_text=? WHERE id=?`)
         .bind(finishedAt, status, result.attempted, result.completed, result.written,
-          status === "ok" ? null : `Kun ${result.completed}/${result.attempted} finske værankere ble hentet`, run.id).run();
+          status === "ok" ? null : `${result.completed}/${result.attempted} finske værankere ga observasjonsdata; ${result.noData} ga ingen data`, run.id).run();
     }
     return {
       ...result,
@@ -202,7 +229,7 @@ export async function runFmiWeather(db) {
       finishedAt,
       ok: status === "ok",
       concurrency: CONCURRENCY,
-      method: "FMI timevaluepair for navngitte kontraktssteder, hentet parallelt i små grupper.",
+      method: "FMI timevaluepair for navngitte kontraktssteder. Tvetydige steder presiseres med region, og områder hentes parallelt i små grupper.",
     };
   } catch (error) {
     const finishedAt = new Date().toISOString();
