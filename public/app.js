@@ -1,6 +1,6 @@
 const STATUS_TEXT = {
   active: "aktiv",
-  ready: "klar",
+  ready: "klar for test",
   planned: "planlagt",
   warming_up: "samler mer data",
   seeded: "grunnlag lagt inn",
@@ -17,15 +17,17 @@ const fmtStatus = (value) => {
 
 async function load() {
   try {
-    const [healthRes, statusRes, forecastRes] = await Promise.all([
+    const [healthRes, statusRes, forecastRes, nordicRes] = await Promise.all([
       fetch("/api/health"),
       fetch("/api/status"),
       fetch("/api/forecast"),
+      fetch("/api/nordic/status"),
     ]);
 
     const health = await healthRes.json();
     const status = await statusRes.json();
     const forecast = await forecastRes.json();
+    const nordic = nordicRes.ok ? await nordicRes.json() : null;
 
     const pill = document.querySelector("#health-pill");
     pill.textContent = health.ok ? "Tjenesten er på nett" : "Feil i tjenesten";
@@ -49,8 +51,14 @@ async function load() {
       forecastHistory: "Historikk for estimater",
     };
 
+    const collection = { ...(status.dataCollection || {}) };
+    if (nordic) {
+      collection.dmi = nordic?.sources?.DMI?.status === "ok" ? "active" : nordic?.sources?.DMI?.status === "error" ? "error" : "ready";
+      collection.fmi = nordic?.sources?.FMI?.status === "ok" ? "active" : nordic?.sources?.FMI?.status === "error" ? "error" : "ready";
+    }
+
     const statusList = document.querySelector("#status-list");
-    statusList.innerHTML = Object.entries(status.dataCollection || {})
+    statusList.innerHTML = Object.entries(collection)
       .map(
         ([key, value]) => `
           <div class="status-row">
