@@ -12,6 +12,7 @@ import {
   runActivityMonitor,
 } from "./activity.js";
 import { getNordicWeatherStatus, runNordicWeather } from "./nordic.js";
+import { ensureNordicContracts } from "./nordic-contracts.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
@@ -128,12 +129,14 @@ export default {
       }
 
       if (url.pathname === "/api/nordic/run") {
+        await ensureNordicContracts(env.DB);
         return json(await runNordicWeather(env.DB, {
           country: url.searchParams.get("country") || "all",
         }));
       }
 
       if (url.pathname === "/api/nordic/status") {
+        await ensureNordicContracts(env.DB);
         return json(await getNordicWeatherStatus(env.DB));
       }
 
@@ -190,6 +193,7 @@ export default {
 
       // Fase C: danske og finske meteorologiske observasjoner samles hver time.
       try {
+        await ensureNordicContracts(env.DB);
         const result = await runNordicWeather(env.DB, { country: "all" });
         console.log(JSON.stringify({ event: "scheduled-nordic-weather", cron: controller.cron, ...result }));
       } catch (error) {
