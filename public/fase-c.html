@@ -20,6 +20,7 @@
             <a href="/fase-b.html">Fase B</a>
             <button id="run-denmark" type="button">Hent Danmark nå</button>
             <button id="run-finland" type="button">Hent Finland nå</button>
+            <button id="run-backfill" type="button">Fyll historikk nå</button>
             <button id="refresh-button" type="button">Oppdater siden</button>
           </nav>
         </div>
@@ -49,7 +50,20 @@
         </article>
       </section>
 
-      <section class="grid two">
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">HISTORIKK</p>
+            <h2>60-dagers værhistorikk</h2>
+          </div>
+          <span class="pill" id="backfill-pill">henter…</span>
+        </div>
+        <div class="progress-track"><div class="progress-bar" id="backfill-progress"></div></div>
+        <p class="status-note" id="backfill-detail">Henter fremdrift…</p>
+        <div class="status-list compact-rule-list" id="backfill-list"></div>
+      </section>
+
+      <section class="grid two status-panel-gap">
         <article class="panel">
           <div class="panel-head">
             <div>
@@ -59,7 +73,7 @@
             <span class="pill" id="dmi-pill">—</span>
           </div>
           <div class="status-list" id="dmi-status"></div>
-          <p class="status-note">Systemet velger nærmeste aktive meteorologiske målestasjon til hvert dansk væranker.</p>
+          <p class="status-note">Systemet velger nærmeste aktive meteorologiske målestasjon som støtter temperatur, vind, luftfuktighet og timesnedbør.</p>
         </article>
 
         <article class="panel">
