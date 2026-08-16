@@ -10,6 +10,7 @@ const DMI_SPECS = [
   ["precip_past1h", "precipitation_mm"],
 ];
 const REQUIRED_PARAMETERS = DMI_SPECS.map(([parameter]) => parameter);
+const INSERT_ROWS_PER_QUERY = 12; // 12 rows x 8 bound values = 96, below D1's 100-bind limit.
 
 function numeric(value) {
   const n = Number(value);
@@ -31,6 +32,12 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function hourBucket(iso) {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(Math.floor(ms / 3600000) * 3600000).toISOString();
+}
+
 async function fetchDmiStations() {
   const params = new URLSearchParams({
     bbox: "7.5,54.4,13.2,57.9",
@@ -39,7 +46,7 @@ async function fetchDmiStations() {
     limit: "1000",
   });
   const response = await fetch(`${DMI_STATIONS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/0.8" },
+    headers: { "user-agent": "Terranor-Tracker/1.1" },
   });
   if (!response.ok) {
     const body = await response.text();
@@ -89,10 +96,8 @@ async function fetchDmiParameter(stationId, parameterId, startIso, endIso) {
     stationId: String(stationId),
     parameterId,
   });
-  // DMI documents sortorder=observed,DESC for the observation collection. We do not
-  // need server-side sorting here, so omit sortorder entirely and sort/merge by timestamp locally.
   const response = await fetch(`${DMI_OBS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/0.8" },
+    headers: { "user-agent": "Terranor-Tracker/1.1" },
   });
   if (!response.ok) {
     const body = await response.text();
@@ -101,28 +106,49 @@ async function fetchDmiParameter(stationId, parameterId, startIso, endIso) {
   return response.json();
 }
 
-async function upsertObservation(db, row) {
-  await db.prepare(`INSERT INTO weather_observations (
+function insertObservationChunk(db, rows) {
+  const placeholders = rows.map(() => "(?, 'DMI', ?, ?, ?, NULL, ?, NULL, ?, ?, ?)").join(",");
+  const values = [];
+  for (const row of rows) {
+    values.push(
+      row.contract_id || null,
+      String(row.station_id),
+      row.observed_at,
+      row.air_temp_c,
+      row.precipitation_mm,
+      row.wind_ms,
+      row.humidity_pct,
+      JSON.stringify(row.raw || {}),
+    );
+  }
+  return db.prepare(`INSERT INTO weather_observations (
       contract_id, source, station_id, observed_at, air_temp_c, road_temp_c,
       precipitation_mm, precipitation_type, wind_ms, humidity_pct, raw_json
-    ) VALUES (?, 'DMI', ?, ?, ?, NULL, ?, NULL, ?, ?, ?)
+    ) VALUES ${placeholders}
     ON CONFLICT(source, station_id, observed_at) DO UPDATE SET
       contract_id=COALESCE(excluded.contract_id, weather_observations.contract_id),
       air_temp_c=COALESCE(excluded.air_temp_c, weather_observations.air_temp_c),
       precipitation_mm=COALESCE(excluded.precipitation_mm, weather_observations.precipitation_mm),
       wind_ms=COALESCE(excluded.wind_ms, weather_observations.wind_ms),
       humidity_pct=COALESCE(excluded.humidity_pct, weather_observations.humidity_pct),
-      raw_json=excluded.raw_json`)
-    .bind(row.contract_id || null, String(row.station_id), row.observed_at,
-      row.air_temp_c, row.precipitation_mm, row.wind_ms, row.humidity_pct,
-      JSON.stringify(row.raw || {})).run();
-  return 1;
+      raw_json=excluded.raw_json`).bind(...values).run();
+}
+
+async function persistObservations(db, rows) {
+  let written = 0;
+  const ordered = [...rows].sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at));
+  for (let i = 0; i < ordered.length; i += INSERT_ROWS_PER_QUERY) {
+    const chunk = ordered.slice(i, i + INSERT_ROWS_PER_QUERY);
+    if (!chunk.length) continue;
+    await insertObservationChunk(db, chunk);
+    written += chunk.length;
+  }
+  return written;
 }
 
 async function collectTarget(db, target, station) {
   const end = new Date();
   const start = new Date(end.getTime() - 26 * 3600000);
-  const rows = new Map();
   const parameterCounts = {};
 
   const datasets = await Promise.all(DMI_SPECS.map(async ([parameter, field]) => ({
@@ -131,39 +157,66 @@ async function collectTarget(db, target, station) {
     dataset: await fetchDmiParameter(station.station_id, parameter, start.toISOString(), end.toISOString()),
   })));
 
+  // DMI commonly returns 10-minute temperature/wind/humidity data. For the tracker we
+  // only need hourly resolution (matching FMI and keeping the Worker below D1's per-invocation
+  // query limit), so observations are averaged within UTC-hour buckets.
+  const buckets = new Map();
   for (const { parameter, field, dataset } of datasets) {
     let count = 0;
     for (const feature of dataset?.features || []) {
       const p = feature?.properties || {};
       const observed = p.observed && Number.isFinite(Date.parse(p.observed)) ? new Date(p.observed).toISOString() : null;
       const value = numeric(p.value);
-      if (!observed || value === null) continue;
+      const bucket = observed ? hourBucket(observed) : null;
+      if (!bucket || value === null) continue;
       count += 1;
-      const row = rows.get(observed) || {
+      const entry = buckets.get(bucket) || {
         contract_id: target.contract_id,
         station_id: station.station_id,
-        observed_at: observed,
-        air_temp_c: null,
-        precipitation_mm: null,
-        wind_ms: null,
-        humidity_pct: null,
-        raw: { location: target.label, stationName: station.station_name, parameters: {} },
+        observed_at: bucket,
+        accumulators: {},
+        raw: { location: target.label, stationName: station.station_name, hourlyAggregation: true, parameters: {} },
       };
-      row[field] = field === "precipitation_mm" && value < 0 ? 0 : value;
-      row.raw.parameters[parameter] = { value, qcStatus: p.qcStatus || null };
-      rows.set(observed, row);
+      const adjusted = field === "precipitation_mm" && value < 0 ? 0 : value;
+      const acc = entry.accumulators[field] || { sum: 0, count: 0 };
+      acc.sum += adjusted;
+      acc.count += 1;
+      entry.accumulators[field] = acc;
+      entry.raw.parameters[parameter] = {
+        samples: acc.count,
+        lastValue: adjusted,
+        qcStatus: p.qcStatus || null,
+      };
+      buckets.set(bucket, entry);
     }
     parameterCounts[parameter] = count;
   }
 
-  let written = 0;
-  const orderedRows = [...rows.values()].sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at));
-  for (const row of orderedRows) written += await upsertObservation(db, row);
-  return { written, rows: rows.size, parameterCounts };
+  const rows = [...buckets.values()].map((entry) => {
+    const avg = (field) => {
+      const acc = entry.accumulators[field];
+      return acc?.count ? acc.sum / acc.count : null;
+    };
+    return {
+      contract_id: entry.contract_id,
+      station_id: entry.station_id,
+      observed_at: entry.observed_at,
+      air_temp_c: avg("air_temp_c"),
+      precipitation_mm: avg("precipitation_mm"),
+      wind_ms: avg("wind_ms"),
+      humidity_pct: avg("humidity_pct"),
+      raw: entry.raw,
+    };
+  });
+
+  const written = await persistObservations(db, rows);
+  return { written, rows: rows.length, parameterCounts, resolution: "hourly" };
 }
 
 export async function runDmiWeather(db) {
   if (!db) throw new Error("D1-bindingen DB mangler");
+  // Keep this defensive for direct use. The regular Phase C route already has the schema,
+  // but this makes the collector safe if called independently.
   await ensureNordicSchema(db);
   const startedAt = new Date().toISOString();
   const run = await db.prepare(`INSERT INTO nordic_weather_runs (source, started_at, status)
@@ -180,7 +233,7 @@ export async function runDmiWeather(db) {
       try {
         const station = nearestDmiStation(target, stations);
         if (!station || station.distance_km > 120) {
-          throw new Error(`Ingen aktiv DMI-stasjon med temperatur, vind, luftfuktighet og nedbør innen 120 km`);
+          throw new Error("Ingen aktiv DMI-stasjon med temperatur, vind, luftfuktighet og nedbør innen 120 km");
         }
         await db.prepare(`UPDATE nordic_weather_targets SET station_id=?, station_name=?, distance_km=?,
             last_linked_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
@@ -196,6 +249,7 @@ export async function runDmiWeather(db) {
           station_type: station.station_type,
           distance_km: round(station.distance_km, 1),
           observations_written: collected.written,
+          resolution: collected.resolution,
           parameter_counts: collected.parameterCounts,
           status: "ok",
         });
@@ -220,7 +274,8 @@ export async function runDmiWeather(db) {
       ok: status === "ok",
       stationCandidates: stations.length,
       fullyEquippedStations: suitableCount,
-      method: "Nærmeste aktive DMI-stasjon som eksplisitt oppgir støtte for temperatur, vind, luftfuktighet og timesnedbør.",
+      resolution: "hourly",
+      method: "Nærmeste aktive DMI-stasjon med temperatur, vind, luftfuktighet og timesnedbør. Høyfrekvente observasjoner aggregeres til timeverdier for analyse og effektiv lagring.",
     };
   } catch (error) {
     const finishedAt = new Date().toISOString();
