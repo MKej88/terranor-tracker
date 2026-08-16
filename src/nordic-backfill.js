@@ -3,6 +3,7 @@ import { ensureNordicSchema } from "./nordic.js";
 const DMI_OBS_URL = "https://opendataapi.dmi.dk/v2/metObs/collections/observation/items";
 const FMI_WFS_URL = "https://opendata.fmi.fi/wfs";
 const DAY_MS = 86400000;
+const HOUR_MS = 3600000;
 const INSERT_ROWS_PER_QUERY = 11; // 11 rows x 9 bindings = 99, below D1's 100-bind limit.
 
 const DMI_SPECS = [
@@ -53,7 +54,7 @@ function xmlDecode(value) {
 function hourBucket(iso) {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return null;
-  return new Date(Math.floor(ms / 3600000) * 3600000).toISOString();
+  return new Date(Math.floor(ms / HOUR_MS) * HOUR_MS).toISOString();
 }
 
 export async function ensureNordicBackfillSchema(db) {
@@ -232,28 +233,49 @@ async function backfillFmiTarget(db, target, startIso, endIso) {
     version: "2.0.0",
     request: "getFeature",
     storedquery_id: "fmi::observations::weather::timevaluepair",
-    place: target.location_name,
     starttime: startIso,
     endtime: endIso,
     timestep: "60",
     parameters: "temperature,windspeedms,humidity,precipitation1h",
   });
+
+  // Historical collection should use the exact station discovered by the live collector.
+  // FMI officially supports fmisid for this stored query. Falling back to place is only for
+  // unlinked targets and avoids re-running fuzzy place resolution for every historical chunk.
+  const numericStationId = /^\d+$/.test(String(target.station_id || "")) ? String(target.station_id) : null;
+  const selector = numericStationId ? `fmisid ${numericStationId}` : `place ${target.location_name}`;
+  if (numericStationId) params.set("fmisid", numericStationId);
+  else params.set("place", target.location_name);
+
   const response = await fetch(`${FMI_WFS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/1.1", "accept": "application/xml,text/xml" },
+    headers: { "user-agent": "Terranor-Tracker/1.2", "accept": "application/xml,text/xml" },
   });
-  if (!response.ok) throw new Error(`FMI ${target.location_name} historikk feilet: ${response.status}`);
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`FMI ${selector} historikk feilet: ${response.status} ${body.slice(0, 220)}`);
+  }
   const xml = await response.text();
   if (/ExceptionReport|ExceptionText/i.test(xml)) {
     const message = xml.match(/<[^>]*ExceptionText[^>]*>([\s\S]*?)<\/[^>]*ExceptionText>/i)?.[1];
-    throw new Error(`FMI svarte med feil: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
+    throw new Error(`FMI ${selector} svarte med feil: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
   }
   const parsed = parseFmi(xml, target);
+  if (!parsed.rows.length) {
+    throw new Error(`FMI ${selector} ga ingen historiske observasjoner for ${startIso}–${endIso}`);
+  }
   if (parsed.stationId) {
     await db.prepare(`UPDATE nordic_weather_targets SET station_id=?, station_name=?, last_linked_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
       .bind(String(parsed.stationId), parsed.stationName, new Date().toISOString(), target.id).run();
   }
   const written = await upsertRows(db, parsed.rows);
-  return { written, rows: parsed.rows.length, stationId: parsed.stationId, stationName: parsed.stationName, resolution: "hourly" };
+  return {
+    written,
+    rows: parsed.rows.length,
+    stationId: parsed.stationId,
+    stationName: parsed.stationName,
+    selector,
+    resolution: "hourly",
+  };
 }
 
 async function getTargetCoverage(db, target, days, nowMs) {
@@ -308,8 +330,10 @@ async function runTask(db, target, days) {
   const cutoffMs = now.getTime() - days * DAY_MS;
   const earliestMs = target.earliest && Number.isFinite(Date.parse(target.earliest)) ? Date.parse(target.earliest) : now.getTime();
   const chunkDays = target.source === "DMI" ? 7 : 14;
-  const endMs = Math.min(now.getTime(), earliestMs - 60000);
-  const startMs = Math.max(cutoffMs, endMs - chunkDays * DAY_MS);
+  const rawEndMs = Math.min(now.getTime(), earliestMs - 60000);
+  const endMs = target.source === "FMI" ? Math.floor(rawEndMs / HOUR_MS) * HOUR_MS : rawEndMs;
+  const rawStartMs = Math.max(cutoffMs, endMs - chunkDays * DAY_MS);
+  const startMs = target.source === "FMI" ? Math.floor(rawStartMs / HOUR_MS) * HOUR_MS : rawStartMs;
   const startIso = new Date(startMs).toISOString();
   const endIso = new Date(endMs).toISOString();
   const startedAt = new Date().toISOString();
@@ -331,6 +355,7 @@ async function runTask(db, target, days) {
       chunkEnd: endIso,
       observationsWritten: collected.written || 0,
       resolution: collected.resolution || "hourly",
+      selector: collected.selector || null,
       status: "ok",
     };
   } catch (error) {
@@ -356,7 +381,7 @@ export async function runNordicBackfill(db, { days = 60, maxTasks = 2 } = {}) {
     tasksAttempted: details.length,
     details,
     completeBeforeRun: coverage.length > 0 && coverage.every((x) => x.complete),
-    note: "Historikken fylles bakover i små deler. Danmark aggregeres til timeverdier og bruker 7-dagersblokker; Finland bruker 14-dagersblokker.",
+    note: "Historikken fylles bakover i små deler. Danmark aggregeres til timeverdier og bruker 7-dagersblokker; Finland bruker 14-dagersblokker og hentes med låst FMI-stasjons-ID når den er kjent.",
   };
 }
 
