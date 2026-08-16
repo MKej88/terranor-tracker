@@ -1,4 +1,11 @@
-import { ensureSchema, getDbStatus, listContracts, seedContracts } from "./db.js";
+import { ensureSchema, getDbStatus, seedContracts, listContracts } from "./db.js";
+import {
+  collectSmhiWeather,
+  ensureWeatherSchema,
+  getWeatherStatus,
+  listWeatherContracts,
+  seedWeatherAnchors,
+} from "./weather.js";
 
 const json = (data, init = {}) =>
   new Response(JSON.stringify(data, null, 2), {
@@ -150,10 +157,11 @@ function redirect(location, headers = {}) {
   return new Response(null, { status: 302, headers: { location, ...headers } });
 }
 
-async function getSeededContracts(db) {
-  let contracts = await listContracts(db);
-  if (contracts.length === 0) contracts = await seedContracts(db);
-  return contracts;
+async function initializeData(db) {
+  await ensureSchema(db);
+  await seedContracts(db);
+  await ensureWeatherSchema(db);
+  await seedWeatherAnchors(db);
 }
 
 export default {
@@ -166,6 +174,8 @@ export default {
         service: "terranor-tracker",
         authConfigured: Boolean(env.APP_PASSWORD && env.SESSION_SECRET),
         dbConfigured: Boolean(env.DB),
+        smhiConfigured: true,
+        trafikverketConfigured: Boolean(env.TRAFIKVERKET_API_KEY),
         timestamp: new Date().toISOString(),
       });
     }
@@ -186,10 +196,7 @@ export default {
       const valid = await secureEqual(password, env.APP_PASSWORD);
       if (!valid) return html(loginPage("Feil passord."), { status: 401 });
 
-      if (env.DB) {
-        await ensureSchema(env.DB);
-        await getSeededContracts(env.DB);
-      }
+      if (env.DB) await initializeData(env.DB);
 
       const now = Math.floor(Date.now() / 1000);
       const token = await signSession({ iat: now, exp: now + SESSION_TTL_SECONDS }, env.SESSION_SECRET);
@@ -213,7 +220,7 @@ export default {
 
     if (url.pathname === "/api/db-status") {
       try {
-        await getSeededContracts(env.DB);
+        if (env.DB) await initializeData(env.DB);
         return json(await getDbStatus(env.DB));
       } catch (error) {
         return json({ configured: Boolean(env.DB), error: String(error?.message || error) }, { status: 500 });
@@ -222,10 +229,37 @@ export default {
 
     if (url.pathname === "/api/contracts") {
       try {
-        const contracts = await getSeededContracts(env.DB);
-        return json({ count: contracts.length, contracts });
+        if (env.DB) await initializeData(env.DB);
+        return json({ contracts: await listContracts(env.DB) });
       } catch (error) {
         return json({ error: String(error?.message || error) }, { status: 500 });
+      }
+    }
+
+    if (url.pathname === "/api/weather/status") {
+      try {
+        if (env.DB) await initializeData(env.DB);
+        return json(await getWeatherStatus(env.DB));
+      } catch (error) {
+        return json({ error: String(error?.message || error) }, { status: 500 });
+      }
+    }
+
+    if (url.pathname === "/api/weather/contracts") {
+      try {
+        if (env.DB) await initializeData(env.DB);
+        return json({ contracts: await listWeatherContracts(env.DB) });
+      } catch (error) {
+        return json({ error: String(error?.message || error) }, { status: 500 });
+      }
+    }
+
+    if (url.pathname === "/api/weather/run") {
+      try {
+        if (env.DB) await initializeData(env.DB);
+        return json(await collectSmhiWeather(env.DB));
+      } catch (error) {
+        return json({ ok: false, error: String(error?.message || error) }, { status: 500 });
       }
     }
 
@@ -234,19 +268,29 @@ export default {
     }
 
     if (url.pathname === "/api/status") {
+      let weather = null;
+      if (env.DB) {
+        try {
+          await initializeData(env.DB);
+          weather = await getWeatherStatus(env.DB);
+        } catch {
+          weather = null;
+        }
+      }
       return json({
-        phase: "setup",
+        phase: "Q3 data collection setup",
         targetQuarter: "Q3 2026",
         q2ReportDate: "2026-08-25",
         q3ReportDate: "2026-11-10",
         dataCollection: {
-          trafficWeather: "planned",
-          smhi: "planned",
+          smhi: weather?.latestRun?.status === "ok" ? "active" : "ready",
+          trafficWeather: env.TRAFIKVERKET_API_KEY ? "key configured; collector next" : "awaiting API key",
           dmi: "planned",
           fmi: "planned",
-          contracts: "public seed portfolio connected",
+          contracts: "seeded",
           forecastHistory: "database connected",
         },
+        weather,
       });
     }
 
@@ -258,22 +302,22 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    if (env.DB) {
-      try {
-        await ensureSchema(env.DB);
-        await getSeededContracts(env.DB);
-      } catch (error) {
-        console.error("D1 initialization failed", error);
-      }
+    if (!env.DB) {
+      console.error("Scheduled collection skipped: D1 binding missing");
+      return;
     }
 
-    console.log(
-      JSON.stringify({
-        event: "scheduled-collection-placeholder",
+    try {
+      await initializeData(env.DB);
+      const result = await collectSmhiWeather(env.DB);
+      console.log(JSON.stringify({
+        event: "scheduled-smhi-collection",
         cron: controller.cron,
-        dbConfigured: Boolean(env.DB),
         scheduledTime: new Date(controller.scheduledTime).toISOString(),
-      }),
-    );
+        ...result,
+      }));
+    } catch (error) {
+      console.error("Scheduled SMHI collection failed", error);
+    }
   },
 };
