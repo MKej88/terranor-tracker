@@ -16,6 +16,7 @@ import { runDmiWeather } from "./dmi.js";
 import { runFmiWeather } from "./fmi.js";
 import { ensureNordicContracts } from "./nordic-contracts.js";
 import { ensureNordicExtraTargets } from "./nordic-extra-targets.js";
+import { ensureDenmarkStateTargets } from "./nordic-denmark-targets.js";
 import { getNordicBackfillStatus, runNordicBackfill } from "./nordic-backfill.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
@@ -51,6 +52,17 @@ async function baseResponseWithNorwegianLogin(request, env, url) {
 async function ensurePhaseC(db) {
   await ensureNordicContracts(db);
   await ensureNordicExtraTargets(db);
+  await ensureDenmarkStateTargets(db);
+}
+
+async function getPhaseCStatus(db) {
+  const status = await getNordicWeatherStatus(db);
+  status.limitations = [
+    "De fire danske statlige 2026-2029-kontraktene er nå dekket med regionale værproxyer for de to områdene i Norddanmark og de to i Østdanmark. Eksakte delkontraktsgrenser må fortsatt erstatte proxyene når de er hentet fra anbudsdokumentene.",
+    "Finland er utvidet med de offentlig listede Terranor-referanseområdene hvis oppgitte kontraktsperioder inkluderer 2026. Kontraktsverdi og årlig omsetningstakt er ikke dokumentert for alle disse områdene, så de brukes foreløpig til værdekning og ikke økonomisk vekting.",
+    "Sørøst-Finland bruker Lappeenranta som regional værproxy for dreneringsarbeidet og er ikke en eksakt kontraktsgrense.",
+  ];
+  return status;
 }
 
 export default {
@@ -167,7 +179,7 @@ export default {
 
       if (url.pathname === "/api/nordic/status") {
         await ensurePhaseC(env.DB);
-        return json(await getNordicWeatherStatus(env.DB));
+        return json(await getPhaseCStatus(env.DB));
       }
 
       if (url.pathname === "/api/nordic/backfill/run") {
