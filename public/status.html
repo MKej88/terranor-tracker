@@ -13,9 +13,10 @@
         <div>
           <p class="eyebrow">DRIFTSSTATUS</p>
           <h1>Status</h1>
-          <p class="lede">En enkel oversikt over hva som er hentet inn, hvor ferske dataene er og om noe trenger oppfølging.</p>
+          <p class="lede">Kort oversikt over datainnhenting, historikk og kvalitet. Detaljene for tilleggsarbeider og bestillinger ligger på en egen Fase B-side.</p>
           <nav class="page-nav">
-            <a href="/">← Til hovedsiden</a>
+            <a href="/">← Hovedsiden</a>
+            <a href="/fase-b.html">Fase B</a>
             <button id="refresh-button" type="button">Oppdater nå</button>
           </nav>
         </div>
@@ -71,30 +72,6 @@
         </article>
       </section>
 
-      <section class="panel status-panel-gap">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">DATA I DATABASEN</p>
-            <h2>Dekning per værkilde</h2>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="status-table">
-            <thead>
-              <tr>
-                <th>Kilde</th>
-                <th>Antall målinger</th>
-                <th>Første måling</th>
-                <th>Siste måling</th>
-              </tr>
-            </thead>
-            <tbody id="range-body">
-              <tr><td colspan="4">Henter data…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section class="grid two status-panel-gap">
         <article class="panel">
           <div class="panel-head">
@@ -147,31 +124,18 @@
         </article>
       </section>
 
-      <section class="grid two status-panel-gap">
-        <article class="panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">FASE B · TILLEGGSARBEIDER OG BESTILLINGER</p>
-              <h2>Automatisk kildeovervåking</h2>
-            </div>
+      <section class="panel status-panel-gap phase-link-panel">
+        <div class="panel-head phase-link-head">
+          <div>
+            <p class="eyebrow">FASE B</p>
+            <h2>Tilleggsarbeider og bestillinger</h2>
+            <p class="status-note no-top-margin">Detaljer, kandidater og registrerte aktivitetssignaler er flyttet til en egen side.</p>
           </div>
-          <div class="status-list" id="activity-source-list">
-            <div class="status-row"><span>Henter status…</span><b>—</b></div>
-          </div>
-          <p class="status-note" id="activity-note">Ordre- og aktivitetssignaler påvirker ikke resultatestimatet automatisk.</p>
-        </article>
-
-        <article class="panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">FASE B · FUNN</p>
-              <h2>Registrerte aktivitetssignaler</h2>
-            </div>
-          </div>
-          <div class="status-list" id="activity-signal-list">
-            <div class="status-row"><span>Henter status…</span><b>—</b></div>
-          </div>
-        </article>
+          <a class="nav-link" href="/fase-b.html">Åpne Fase B →</a>
+        </div>
+        <div class="status-list" id="phase-b-summary">
+          <div class="status-row"><span>Henter Fase B-status…</span><b>—</b></div>
+        </div>
       </section>
 
       <section class="panel status-panel-gap">
@@ -185,6 +149,25 @@
           <p class="status-note">Kontrollerer målestasjonene…</p>
         </div>
       </section>
+
+      <details class="panel status-panel-gap compact-details">
+        <summary>Vis detaljert dekning per værkilde</summary>
+        <div class="table-wrap details-content">
+          <table class="status-table">
+            <thead>
+              <tr>
+                <th>Kilde</th>
+                <th>Antall målinger</th>
+                <th>Første måling</th>
+                <th>Siste måling</th>
+              </tr>
+            </thead>
+            <tbody id="range-body">
+              <tr><td colspan="4">Henter data…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
 
       <p class="updated-line" id="updated-line">—</p>
       <footer>Terranor Tracker · statusside</footer>
