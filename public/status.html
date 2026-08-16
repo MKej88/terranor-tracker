@@ -39,7 +39,7 @@
           <small>Vanlige vær- og veiværmålinger samlet</small>
         </article>
         <article class="card">
-          <span>Historiske værstasjoner</span>
+          <span>60-dagers værhistorikk</span>
           <strong id="backfill-count">—</strong>
           <small id="backfill-text">Historisk innlasting</small>
         </article>
@@ -99,8 +99,8 @@
         <article class="panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">HISTORISK VÆR</p>
-              <h2>Innlasting av historikk</h2>
+              <p class="eyebrow">KORT VÆRHISTORIKK</p>
+              <h2>Innlasting av 60 dager</h2>
             </div>
           </div>
           <div class="progress-track"><div class="progress-bar" id="backfill-progress"></div></div>
@@ -117,6 +117,33 @@
           <div class="status-list" id="model-list">
             <div class="status-row"><span>Henter status…</span><b>—</b></div>
           </div>
+        </article>
+      </section>
+
+      <section class="grid two status-panel-gap">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">FASE A · HISTORISK SAMMENLIGNING</p>
+              <h2>10-årig værgrunnlag</h2>
+            </div>
+          </div>
+          <div class="progress-track"><div class="progress-bar" id="climate-progress"></div></div>
+          <p class="status-note" id="climate-detail">Henter status…</p>
+          <div class="status-list" id="climate-list"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">FASE A · GEOGRAFI</p>
+              <h2>Dekning med flere målestasjoner</h2>
+            </div>
+          </div>
+          <div class="status-list" id="geography-list">
+            <div class="status-row"><span>Henter status…</span><b>—</b></div>
+          </div>
+          <p class="status-note" id="geography-note"></p>
         </article>
       </section>
 
