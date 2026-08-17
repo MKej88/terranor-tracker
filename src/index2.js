@@ -229,51 +229,78 @@ export default {
   },
 
   async scheduled(controller, env) {
-    await baseWorker.scheduled(controller, env);
+    const cron = String(controller.cron || "");
 
-    if (env.DB) {
+    // Workers Free has a hard limit of 50 external subrequests per invocation.
+    // The collectors are therefore deliberately staggered across separate cron
+    // invocations instead of running Sweden + Denmark + Finland in one Worker run.
+    if (cron === "15 * * * *") {
+      await baseWorker.scheduled(controller, env);
+      return;
+    }
+
+    if (!env.DB) {
+      console.error("Scheduled collection skipped: D1 binding missing");
+      return;
+    }
+
+    if (cron === "25 * * * *") {
+      try {
+        await ensurePhaseC(env.DB);
+        const DMI = await runDmiWeather(env.DB);
+        console.log(JSON.stringify({ event: "scheduled-denmark-weather", cron, DMI }));
+      } catch (error) {
+        console.error("Automatisk dansk værinnsamling feilet", error);
+      }
+      return;
+    }
+
+    if (cron === "35 * * * *") {
+      try {
+        await ensurePhaseC(env.DB);
+        const FMI = await runFmiWeather(env.DB);
+        console.log(JSON.stringify({ event: "scheduled-finland-weather", cron, FMI }));
+      } catch (error) {
+        console.error("Automatisk finsk værinnsamling feilet", error);
+      }
+
+      try {
+        await ensurePhaseC(env.DB);
+        const result = await runNordicBackfill(env.DB, { days: 60, maxTasks: 2 });
+        console.log(JSON.stringify({ event: "scheduled-nordic-backfill", cron, ...result }));
+      } catch (error) {
+        console.error("Automatisk dansk/finsk 60-dagershistorikk feilet", error);
+      }
+      return;
+    }
+
+    if (cron === "45 * * * *") {
       try {
         const result = await runSmhiBackfill(env.DB, { days: 60, maxStations: 2 });
-        console.log(JSON.stringify({ event: "scheduled-smhi-backfill", cron: controller.cron, ...result }));
+        console.log(JSON.stringify({ event: "scheduled-smhi-backfill", cron, ...result }));
       } catch (error) {
         console.error("Automatisk 60-dagers værhistorikk feilet", error);
       }
 
       try {
         const result = await runClimateArchive(env.DB, { maxTasks: 1 });
-        console.log(JSON.stringify({ event: "scheduled-climate-archive", cron: controller.cron, ...result }));
+        console.log(JSON.stringify({ event: "scheduled-climate-archive", cron, ...result }));
       } catch (error) {
         console.error("Automatisk 10-års værgrunnlag feilet", error);
-      }
-
-      try {
-        await ensurePhaseC(env.DB);
-        const [DMI, FMI] = await Promise.all([
-          runDmiWeather(env.DB),
-          runFmiWeather(env.DB),
-        ]);
-        console.log(JSON.stringify({ event: "scheduled-nordic-weather", cron: controller.cron, DMI, FMI }));
-      } catch (error) {
-        console.error("Automatisk dansk/finsk værinnsamling feilet", error);
-      }
-
-      try {
-        await ensurePhaseC(env.DB);
-        const result = await runNordicBackfill(env.DB, { days: 60, maxTasks: 2 });
-        console.log(JSON.stringify({ event: "scheduled-nordic-backfill", cron: controller.cron, ...result }));
-      } catch (error) {
-        console.error("Automatisk dansk/finsk 60-dagershistorikk feilet", error);
       }
 
       const hourUtc = new Date().getUTCHours();
       if (hourUtc % 6 === 0) {
         try {
           const result = await runActivityMonitor(env.DB, { maxItems: 4 });
-          console.log(JSON.stringify({ event: "scheduled-activity-monitor", cron: controller.cron, ...result }));
+          console.log(JSON.stringify({ event: "scheduled-activity-monitor", cron, ...result }));
         } catch (error) {
           console.error("Automatisk overvåking av ordre- og aktivitetssignaler feilet", error);
         }
       }
+      return;
     }
+
+    console.warn(`Ukjent cron-trigger ignorert: ${cron}`);
   },
 };
