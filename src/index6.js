@@ -39,7 +39,7 @@ export default {
             ? "Finland"
             : null;
         return json(await runNordicClimateArchive(env.DB, {
-          maxTasks: url.searchParams.get("tasks") || 6,
+          maxTasks: url.searchParams.get("tasks") || 12,
           country,
         }));
       }
@@ -68,7 +68,7 @@ export default {
     }
 
     try {
-      const result = await runNordicClimateArchive(env.DB, { maxTasks: 6 });
+      const result = await runNordicClimateArchive(env.DB, { maxTasks: 12 });
       console.log(JSON.stringify({ event: "scheduled-nordic-climate", cron, ...result }));
     } catch (error) {
       console.error("Automatisk nordisk 10-årsinnlasting feilet", error);
