@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "terranor-tracker",
-  "main": "src/index2.js",
+  "main": "src/index3.js",
   "compatibility_date": "2026-08-16",
   "assets": {
     "directory": "./public",
@@ -19,7 +19,7 @@
     }
   ],
   "limits": {
-    "cpu_ms": 2000,
+    "cpu_ms": 10000,
     "subrequests": 1000
   },
   "triggers": {
