@@ -119,7 +119,7 @@ Cloudflare
 └─ Static Assets: public/
 ```
 
-Tidligere `index.js`–`index6.js` ligger fortsatt i repoet som historikk/overgangskode, men `wrangler.jsonc` peker nå direkte på `src/worker.js`. Ny funksjonalitet skal legges i featuremoduler og registreres i den samlede routeren, ikke i nye `index7.js`-lag.
+Den gamle `index.js`–`index6.js`-kjeden er fjernet. `wrangler.jsonc` peker direkte på `src/worker.js`, og ny funksjonalitet skal legges i featuremoduler og registreres i den samlede routeren i stedet for å opprette nye wrapper-lag.
 
 ### Viktige moduler
 
