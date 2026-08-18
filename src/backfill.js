@@ -1,3 +1,5 @@
+import { TRACKER_CONFIG } from "./config.js";
+
 const SMHI_BASE = "https://opendata-download-metobs.smhi.se/api/version/1.0";
 const DEFAULT_DAYS = 60;
 const DEFAULT_STATIONS_PER_RUN = 2;
@@ -8,6 +10,7 @@ const PARAMETERS = [
   { id: 6, field: "humidity_pct" },
   { id: 7, field: "precipitation_mm" },
 ];
+const CORE_FIELDS = ["air_temp_c", "wind_ms", "precipitation_mm"];
 
 const BACKFILL_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS backfill_runs (
@@ -52,7 +55,7 @@ function numericOrNull(value) {
 
 async function fetchStationParameter(stationId, parameterId) {
   const url = `${SMHI_BASE}/parameter/${parameterId}/station/${encodeURIComponent(stationId)}/period/latest-months/data.json`;
-  const response = await fetch(url, { headers: { "user-agent": "terranor-tracker/0.3" } });
+  const response = await fetch(url, { headers: { "user-agent": "terranor-tracker/2.0" } });
   if (response.status === 404) return { values: [], url, unavailable: true };
   if (!response.ok) throw new Error(`SMHI station ${stationId} parameter ${parameterId} failed: ${response.status}`);
   const payload = await response.json();
@@ -69,27 +72,48 @@ async function primarySmhiStations(db) {
   return result?.results || [];
 }
 
-async function observationCountSince(db, stationId, sinceIso) {
-  const row = await db.prepare(`SELECT COUNT(*) AS count
+async function stationCoverage(db, stationId, days) {
+  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
+  const row = await db.prepare(`SELECT
+      COUNT(*) AS observations,
+      MIN(observed_at) AS earliest,
+      MAX(observed_at) AS latest,
+      SUM(CASE WHEN air_temp_c IS NOT NULL THEN 1 ELSE 0 END) AS air_temp_hours,
+      SUM(CASE WHEN wind_ms IS NOT NULL THEN 1 ELSE 0 END) AS wind_hours,
+      SUM(CASE WHEN precipitation_mm IS NOT NULL THEN 1 ELSE 0 END) AS precipitation_hours,
+      SUM(CASE WHEN humidity_pct IS NOT NULL THEN 1 ELSE 0 END) AS humidity_hours
     FROM weather_observations
     WHERE source='SMHI' AND station_id=? AND observed_at>=?`)
     .bind(String(stationId), sinceIso).first();
-  return Number(row?.count || 0);
+  const expectedHours = Math.max(1, days * 24);
+  const counts = {
+    air_temp_c: Number(row?.air_temp_hours || 0),
+    wind_ms: Number(row?.wind_hours || 0),
+    precipitation_mm: Number(row?.precipitation_hours || 0),
+    humidity_pct: Number(row?.humidity_hours || 0),
+  };
+  const metricCoveragePct = Object.fromEntries(Object.entries(counts).map(([key, count]) => [
+    key, Math.round(1000 * count / expectedHours) / 10,
+  ]));
+  const minimumCoreCoveragePct = Math.min(...CORE_FIELDS.map((field) => metricCoveragePct[field] || 0));
+  return {
+    observations: Number(row?.observations || 0),
+    earliest: row?.earliest || null,
+    latest: row?.latest || null,
+    metricHours: counts,
+    metricCoveragePct,
+    minimumCoreCoveragePct,
+    backfilled: minimumCoreCoveragePct >= TRACKER_CONFIG.weatherQuality.readyMetricCoveragePct,
+  };
 }
 
 async function pickStations(db, days, limit) {
-  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
   const stations = await primarySmhiStations(db);
   const scored = [];
-  for (const station of stations) {
-    const count = await observationCountSince(db, station.station_id, sinceIso);
-    scored.push({ ...station, observations_since: count });
-  }
-  // A station with fewer than ~4 observations/day is considered not backfilled yet.
-  const threshold = days * 4;
+  for (const station of stations) scored.push({ ...station, ...(await stationCoverage(db, station.station_id, days)) });
   return scored
-    .filter((row) => row.observations_since < threshold)
-    .sort((a, b) => a.observations_since - b.observations_since)
+    .filter((row) => !row.backfilled)
+    .sort((a, b) => a.minimumCoreCoveragePct - b.minimumCoreCoveragePct)
     .slice(0, limit);
 }
 
@@ -133,19 +157,13 @@ async function writeStation(db, station, days) {
       humidity_pct=COALESCE(excluded.humidity_pct, weather_observations.humidity_pct),
       raw_json=excluded.raw_json`)
     .bind(
-      String(station.station_id),
-      row.observed_at,
-      row.air_temp_c,
-      row.precipitation_mm,
-      row.wind_ms,
-      row.humidity_pct,
+      String(station.station_id), row.observed_at, row.air_temp_c, row.precipitation_mm,
+      row.wind_ms, row.humidity_pct,
       JSON.stringify({ historicalBackfill: true, stationName: station.station_name, qualities: row.qualities }),
     ));
 
   const chunkSize = 50;
-  for (let i = 0; i < statements.length; i += chunkSize) {
-    await db.batch(statements.slice(i, i + chunkSize));
-  }
+  for (let i = 0; i < statements.length; i += chunkSize) await db.batch(statements.slice(i, i + chunkSize));
   return rows.size;
 }
 
@@ -171,18 +189,14 @@ export async function runSmhiBackfill(db, options = {}) {
       details.push({ station_id: String(station.station_id), station_name: station.station_name, observations_written: count });
     }
     const finishedAt = new Date().toISOString();
-    if (runId) {
-      await db.prepare(`UPDATE backfill_runs SET finished_at=?, status='ok', stations_attempted=?,
+    if (runId) await db.prepare(`UPDATE backfill_runs SET finished_at=?, status='ok', stations_attempted=?,
         stations_completed=?, observations_written=? WHERE id=?`)
-        .bind(finishedAt, stations.length, completed, written, runId).run();
-    }
+      .bind(finishedAt, stations.length, completed, written, runId).run();
     return { ok: true, source: "SMHI", days, startedAt, finishedAt, stationsAttempted: stations.length, stationsCompleted: completed, observationsWritten: written, details };
   } catch (error) {
     const finishedAt = new Date().toISOString();
-    if (runId) {
-      await db.prepare(`UPDATE backfill_runs SET finished_at=?, status='error', error_text=? WHERE id=?`)
-        .bind(finishedAt, String(error?.message || error).slice(0, 2000), runId).run();
-    }
+    if (runId) await db.prepare(`UPDATE backfill_runs SET finished_at=?, status='error', error_text=? WHERE id=?`)
+      .bind(finishedAt, String(error?.message || error).slice(0, 2000), runId).run();
     throw error;
   }
 }
@@ -191,19 +205,21 @@ export async function getBackfillStatus(db, days = DEFAULT_DAYS) {
   if (!db) throw new Error("D1 binding DB is missing");
   await ensureBackfillSchema(db);
   const windowDays = clampInt(days, DEFAULT_DAYS, 7, 120);
-  const sinceIso = new Date(Date.now() - windowDays * 86400000).toISOString();
   const stations = await primarySmhiStations(db);
   const stationStatus = [];
-  for (const station of stations) {
-    const count = await observationCountSince(db, station.station_id, sinceIso);
-    stationStatus.push({ station_id: String(station.station_id), station_name: station.station_name, observations: count, backfilled: count >= windowDays * 4 });
-  }
+  for (const station of stations) stationStatus.push({
+    station_id: String(station.station_id),
+    station_name: station.station_name,
+    ...(await stationCoverage(db, station.station_id, windowDays)),
+  });
   const latestRun = await db.prepare(`SELECT source, started_at, finished_at, status, stations_attempted,
     stations_completed, observations_written, error_text
     FROM backfill_runs WHERE source='SMHI' ORDER BY id DESC LIMIT 1`).first();
   return {
     source: "SMHI",
     days: windowDays,
+    qualityVersion: "2.0",
+    requiredCoreMetricCoveragePct: TRACKER_CONFIG.weatherQuality.readyMetricCoveragePct,
     stations: stationStatus.length,
     stationsBackfilled: stationStatus.filter((x) => x.backfilled).length,
     complete: stationStatus.length > 0 && stationStatus.every((x) => x.backfilled),
