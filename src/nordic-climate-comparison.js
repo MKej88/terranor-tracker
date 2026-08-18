@@ -111,6 +111,13 @@ export async function getNordicClimateComparison(db, days = 7) {
     FROM nordic_weather_targets t
     LEFT JOIN contracts c ON c.id=t.contract_id
     WHERE t.active=1 AND t.source IN ('DMI','FMI')
+      AND (
+        (c.id IS NOT NULL
+          AND (c.start_date IS NULL OR c.start_date<='2026-09-30')
+          AND (c.end_date IS NULL OR c.end_date>='2026-07-01'))
+        OR
+        (c.id IS NULL AND t.label NOT IN ('København','Kemi','Ii','Järvenpää'))
+      )
     ORDER BY t.country, t.label`).all();
 
   const rows = [];
@@ -163,6 +170,7 @@ export async function getNordicClimateComparison(db, days = 7) {
 
   return {
     days: safeDays,
+    scope: "Q3 2026",
     baseline: `${BASELINE_START_YEAR}-${BASELINE_END_YEAR}`,
     countries,
     targets: rows,
