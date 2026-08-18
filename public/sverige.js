@@ -1,4 +1,5 @@
 const formatNumber = (value, digits = 0) => {
+  if (value === null || value === undefined || value === "") return "—";
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("nb-NO", { maximumFractionDigits: digits }).format(n);
@@ -147,6 +148,7 @@ function renderGeography(geography) {
 }
 
 function signed(value, suffix = "") {
+  if (value === null || value === undefined || value === "") return "—";
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
   const shown = formatNumber(Math.abs(n), 1);
@@ -157,7 +159,8 @@ function renderComparison(comparison) {
   const ready = Number(comparison?.contractsReady || 0);
   const total = Number(comparison?.contractsTotal || 0);
   const coverage = Number(comparison?.weightedCoveragePct || 0);
-  const anomaly = Number(comparison?.swedenWorkabilityAnomalyPoints);
+  const anomalyRaw = comparison?.swedenWorkabilityAnomalyPoints;
+  const anomaly = anomalyRaw === null || anomalyRaw === undefined || anomalyRaw === "" ? null : Number(anomalyRaw);
   document.querySelector("#comparison-ready").textContent = total ? `${ready} / ${total}` : "—";
   document.querySelector("#comparison-coverage").textContent = total ? `${formatNumber(coverage, 1)} %` : "—";
   document.querySelector("#comparison-anomaly").textContent = Number.isFinite(anomaly) ? signed(anomaly, " p") : "—";
@@ -167,17 +170,22 @@ function renderComparison(comparison) {
 
   const rows = comparison?.contracts || [];
   document.querySelector("#comparison-body").innerHTML = rows.length
-    ? rows.map((row) => `
-      <tr>
-        <td>${escapeHtml(row.contract_name)}</td>
-        <td>${escapeHtml(row.station_name || row.station_id)}</td>
-        <td>${signed(row.air_temperature_delta_c, " °C")}</td>
-        <td>${signed(row.precipitation_event_delta_pct, " pp")}</td>
-        <td>${signed(row.high_wind_delta_pct, " pp")}</td>
-        <td><b class="${Number(row.workability_anomaly_points) >= 0 ? "text-good" : Number.isFinite(Number(row.workability_anomaly_points)) ? "text-warn" : ""}">${signed(row.workability_anomaly_points, " p")}</b></td>
-        <td>${formatNumber(row.baseline_years)}</td>
-      </tr>
-    `).join("")
+    ? rows.map((row) => {
+      const anomalyValue = row.workability_anomaly_points;
+      const anomalyNumber = anomalyValue === null || anomalyValue === undefined || anomalyValue === "" ? null : Number(anomalyValue);
+      const anomalyClass = Number.isFinite(anomalyNumber) ? (anomalyNumber >= 0 ? "text-good" : "text-warn") : "";
+      return `
+        <tr>
+          <td>${escapeHtml(row.contract_name)}</td>
+          <td>${escapeHtml(row.station_name || row.station_id)}</td>
+          <td>${signed(row.air_temperature_delta_c, " °C")}</td>
+          <td>${signed(row.precipitation_event_delta_pct, " pp")}</td>
+          <td>${signed(row.high_wind_delta_pct, " pp")}</td>
+          <td><b class="${anomalyClass}">${signed(row.workability_anomaly_points, " p")}</b></td>
+          <td>${formatNumber(row.baseline_years)}</td>
+        </tr>
+      `;
+    }).join("")
     : `<tr><td colspan="7">Ingen sammenlignbare kontrakter ennå.</td></tr>`;
 }
 
@@ -206,6 +214,7 @@ async function loadStatus() {
   refresh.disabled = true;
   refresh.textContent = "Oppdaterer…";
   document.querySelector("#updated-line").textContent = "Henter fersk status fra databasen…";
+  state = {};
 
   const jobs = [
     getJson("/api/data-quality").then((data) => { state.quality = data; renderLiveSources(data); }),
