@@ -2,7 +2,7 @@ import { parseAwardWorkbook, parsePlanWorkbook } from "./trafikverket-xlsx.js";
 
 const AWARDS_PAGE_URL = "https://bransch.trafikverket.se/for-dig-i-branschen/upphandling/tilldelade-kontrakt/";
 const PLAN_PAGE_URL = "https://bransch.trafikverket.se/for-dig-i-branschen/upphandling/Planerade-upphandlingar/";
-const USER_AGENT = "Terranor-Tracker/0.7 (+private-investor-research)";
+const USER_AGENT = "Terranor-Tracker/2.0 (+private-investor-research)";
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS trafikverket_source_state (
@@ -29,6 +29,15 @@ const SCHEMA = [
     rows_matched INTEGER DEFAULT 0,
     rows_written INTEGER DEFAULT 0,
     error_text TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS trafikverket_file_versions (
+    version_key TEXT PRIMARY KEY,
+    source_key TEXT NOT NULL,
+    source_file_url TEXT NOT NULL,
+    file_hash TEXT NOT NULL,
+    source_updated_at TEXT,
+    imported_at TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE TABLE IF NOT EXISTS trafikverket_awards (
@@ -121,6 +130,7 @@ const SCHEMA = [
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE INDEX IF NOT EXISTS idx_trafikverket_runs_source_time ON trafikverket_procurement_runs(source_key, started_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_trafikverket_versions_source_time ON trafikverket_file_versions(source_key, imported_at)`,
   `CREATE INDEX IF NOT EXISTS idx_trafikverket_awards_category ON trafikverket_awards(purchase_category, terranor_won)`,
   `CREATE INDEX IF NOT EXISTS idx_trafikverket_bids_procurement ON trafikverket_award_bids(procurement_id)`,
   `CREATE INDEX IF NOT EXISTS idx_trafikverket_plan_start ON trafikverket_plan(active, planned_contract_start)`,
@@ -199,7 +209,12 @@ async function fetchWorkbook(url) {
   return response.arrayBuffer();
 }
 
-async function startRun(db, sourceKey, pageUrl, fileUrl) {
+async function sha256Buffer(arrayBuffer) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", arrayBuffer));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function startRun(db, sourceKey, pageUrl, fileUrl = null) {
   return db.prepare(`INSERT INTO trafikverket_procurement_runs (
       source_key, source_page_url, source_file_url, started_at, status
     ) VALUES (?, ?, ?, ?, 'running') RETURNING id`)
@@ -236,6 +251,27 @@ async function updateState(db, sourceKey, pageUrl, fields) {
       fields.lastCheckedAt || new Date().toISOString(), fields.lastImportedAt || null,
       fields.status, fields.error ? String(fields.error).slice(0, 1800) : null,
     ).run();
+}
+
+function versionKey(sourceKey, fileHash) {
+  return `${sourceKey}|${fileHash}`;
+}
+
+async function alreadyImportedHash(db, sourceKey, fileHash) {
+  const row = await db.prepare(`SELECT version_key FROM trafikverket_file_versions WHERE version_key=?`)
+    .bind(versionKey(sourceKey, fileHash)).first();
+  return Boolean(row?.version_key);
+}
+
+async function recordImportedVersion(db, sourceKey, fileUrl, fileHash, sourceUpdatedAt, importedAt) {
+  await db.prepare(`INSERT OR IGNORE INTO trafikverket_file_versions (
+      version_key, source_key, source_file_url, file_hash, source_updated_at, imported_at
+    ) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(versionKey(sourceKey, fileHash), sourceKey, fileUrl, fileHash, sourceUpdatedAt, importedAt).run();
+}
+
+function versionedFileUrl(fileUrl, fileHash) {
+  return `${fileUrl}#tt=${fileHash.slice(0, 16)}`;
 }
 
 function bidKey(procurementId, bid) {
@@ -295,7 +331,7 @@ async function saveAwards(db, parsed, fileUrl) {
 
 async function savePlan(db, parsed, fileUrl) {
   const now = new Date().toISOString();
-  const statements = [db.prepare(`UPDATE trafikverket_plan SET active=0, updated_at=CURRENT_TIMESTAMP WHERE active=1`)];
+  const statements = [];
   for (const item of parsed.plan) {
     const rawJson = JSON.stringify(item).slice(0, 8000);
     statements.push(db.prepare(`INSERT INTO trafikverket_plan (
@@ -337,32 +373,43 @@ async function savePlan(db, parsed, fileUrl) {
         item.estimated_cost_low_msek, item.estimated_cost_high_msek, item.information, rawJson,
       ));
   }
+
+  // Write the complete new version first. Only after every upsert succeeds do we deactivate
+  // rows that were not present in this workbook version. A mid-import failure therefore
+  // leaves the previous complete plan active instead of clearing it first.
   await runBatches(db, statements);
+  await db.prepare(`UPDATE trafikverket_plan SET active=0, updated_at=CURRENT_TIMESTAMP
+      WHERE active=1 AND source_file_url<>?`).bind(fileUrl).run();
   return parsed.plan.length;
 }
 
 async function runSource(db, sourceKey, pageUrl, parser, saver, force) {
   const startedAt = new Date().toISOString();
-  const pageHtml = await fetchText(pageUrl);
-  const fileUrl = chooseWorkbookLink(sourceKey, xlsxLinks(pageHtml, pageUrl));
-  if (!fileUrl) throw new Error(`Fant ingen XLSX-lenke for Trafikverket-kilden ${sourceKey}`);
-
-  const run = await startRun(db, sourceKey, pageUrl, fileUrl);
-  const state = await db.prepare(`SELECT source_file_url FROM trafikverket_source_state WHERE source_key=?`)
-    .bind(sourceKey).first();
-
-  if (!force && state?.source_file_url === fileUrl) {
-    const checked = new Date().toISOString();
-    await finishRun(db, run?.id, { fileUrl, status: "unchanged" });
-    await updateState(db, sourceKey, pageUrl, { fileUrl, lastCheckedAt: checked, status: "unchanged" });
-    return { ok: true, sourceKey, status: "unchanged", fileUrl, rowsSeen: 0, rowsMatched: 0, rowsWritten: 0 };
-  }
+  const run = await startRun(db, sourceKey, pageUrl, null);
+  let fileUrl = null;
 
   try {
-    const parsed = await parser(await fetchWorkbook(fileUrl));
+    const pageHtml = await fetchText(pageUrl);
+    fileUrl = chooseWorkbookLink(sourceKey, xlsxLinks(pageHtml, pageUrl));
+    if (!fileUrl) throw new Error(`Fant ingen XLSX-lenke for Trafikverket-kilden ${sourceKey}`);
+
+    // Download the workbook before deciding whether it changed. Hashing the bytes detects
+    // silent replacements behind an unchanged Trafikverket URL.
+    const workbook = await fetchWorkbook(fileUrl);
+    const fileHash = await sha256Buffer(workbook);
+    if (!force && await alreadyImportedHash(db, sourceKey, fileHash)) {
+      const checked = new Date().toISOString();
+      await finishRun(db, run?.id, { fileUrl, status: "unchanged" });
+      await updateState(db, sourceKey, pageUrl, { fileUrl, lastCheckedAt: checked, status: "unchanged" });
+      return { ok: true, sourceKey, status: "unchanged", startedAt, finishedAt: checked, fileUrl, fileHash, rowsSeen: 0, rowsMatched: 0, rowsWritten: 0 };
+    }
+
+    const parsed = await parser(workbook);
     const rowsMatched = sourceKey === "awards" ? parsed.awards.length : parsed.plan.length;
-    const rowsWritten = await saver(db, parsed, fileUrl);
+    const storedFileUrl = versionedFileUrl(fileUrl, fileHash);
+    const rowsWritten = await saver(db, parsed, storedFileUrl);
     const finishedAt = new Date().toISOString();
+    await recordImportedVersion(db, sourceKey, fileUrl, fileHash, parsed.sourceUpdatedAt, finishedAt);
     await finishRun(db, run?.id, {
       fileUrl, sourceUpdatedAt: parsed.sourceUpdatedAt, status: "ok",
       rowsSeen: parsed.rowsSeen, rowsMatched, rowsWritten,
@@ -372,7 +419,7 @@ async function runSource(db, sourceKey, pageUrl, parser, saver, force) {
       lastImportedAt: finishedAt, status: "ok",
     });
     return {
-      ok: true, sourceKey, status: "ok", startedAt, finishedAt, fileUrl,
+      ok: true, sourceKey, status: "ok", startedAt, finishedAt, fileUrl, fileHash,
       sourceUpdatedAt: parsed.sourceUpdatedAt, rowsSeen: parsed.rowsSeen, rowsMatched, rowsWritten,
     };
   } catch (error) {
@@ -413,7 +460,7 @@ export async function runTrafikverketProcurementMonitor(db, options = {}) {
     generatedAt: new Date().toISOString(),
     results,
     errors,
-    note: "Kontraktsverdier fra tildelingsfilen er Trafikverkets kontraktsverdi inklusive opsjoner og holdes adskilt fra Terranors kommuniserte basisverdi.",
+    note: "Trafikverket-filene identifiseres med innholdshash, slik at endringer oppdages selv om filadressen er uendret. Kontraktsverdier fra tildelingsfilen er inklusive opsjoner og holdes adskilt fra Terranors kommuniserte basisverdi.",
   };
 }
 
