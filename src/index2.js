@@ -20,6 +20,7 @@ import { ensureDenmarkStateTargets } from "./nordic-denmark-targets.js";
 import { getNordicBackfillStatus, runNordicBackfill } from "./nordic-backfill.js";
 import { collectSmhiWeather } from "./weather.js";
 import { collectVvisWeather } from "./vvis.js";
+import { calculateWorkability } from "./workability.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
@@ -233,9 +234,8 @@ export default {
   async scheduled(controller, env) {
     const cron = String(controller.cron || "");
 
-    // Workers Free is deliberately kept to one heavier collector per invocation.
-    // This avoids both the 50 external-subrequest ceiling and the very small CPU
-    // budget on the free tier. Derived workability is calculated on demand for now.
+    // Paid-plan layout: keep each heavier collector isolated for reliability while
+    // retaining conservative per-invocation CPU/subrequest caps in wrangler.jsonc.
     if (!env.DB) {
       console.error("Scheduled collection skipped: D1 binding missing");
       return;
@@ -284,10 +284,13 @@ export default {
       } catch (error) {
         console.error("Automatisk finsk værinnsamling feilet", error);
       }
+      return;
+    }
 
+    if (cron === "40 * * * *") {
       try {
         await ensurePhaseC(env.DB);
-        const result = await runNordicBackfill(env.DB, { days: 60, maxTasks: 2 });
+        const result = await runNordicBackfill(env.DB, { days: 60, maxTasks: 4 });
         console.log(JSON.stringify({ event: "scheduled-nordic-backfill", cron, ...result }));
       } catch (error) {
         console.error("Automatisk dansk/finsk 60-dagershistorikk feilet", error);
@@ -302,22 +305,35 @@ export default {
       } catch (error) {
         console.error("Automatisk 60-dagers værhistorikk feilet", error);
       }
+      return;
+    }
 
+    if (cron === "50 * * * *") {
       try {
-        const result = await runClimateArchive(env.DB, { maxTasks: 1 });
+        const result = await runClimateArchive(env.DB, { maxTasks: 2 });
         console.log(JSON.stringify({ event: "scheduled-climate-archive", cron, ...result }));
       } catch (error) {
         console.error("Automatisk 10-års værgrunnlag feilet", error);
       }
+      return;
+    }
 
-      const hourUtc = new Date().getUTCHours();
-      if (hourUtc % 6 === 0) {
-        try {
-          const result = await runActivityMonitor(env.DB, { maxItems: 4 });
-          console.log(JSON.stringify({ event: "scheduled-activity-monitor", cron, ...result }));
-        } catch (error) {
-          console.error("Automatisk overvåking av ordre- og aktivitetssignaler feilet", error);
-        }
+    if (cron === "55 * * * *") {
+      try {
+        const result = await calculateWorkability(env.DB, { persist: true });
+        console.log(JSON.stringify({ event: "scheduled-workability", cron, sweden: result.sweden }));
+      } catch (error) {
+        console.error("Automatisk beregning av værbaserte arbeidsforhold feilet", error);
+      }
+      return;
+    }
+
+    if (cron === "0 */6 * * *") {
+      try {
+        const result = await runActivityMonitor(env.DB, { maxItems: 4 });
+        console.log(JSON.stringify({ event: "scheduled-activity-monitor", cron, ...result }));
+      } catch (error) {
+        console.error("Automatisk overvåking av ordre- og aktivitetssignaler feilet", error);
       }
       return;
     }
