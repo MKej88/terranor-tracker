@@ -56,6 +56,7 @@ const modelValues = {
   seeded: "grunnlag lagt inn",
   "database connected": "lagres i databasen",
   "awaiting API key": "venter på tilgang",
+  error: "feil",
 };
 
 async function getJson(url) {
@@ -192,38 +193,50 @@ function renderProblems(quality) {
   `).join("");
 }
 
+let overviewState = null;
+let signalsState = null;
+
+function refreshModelStatus() {
+  if (overviewState) renderModelStatus(overviewState, signalsState);
+}
+
 async function loadStatus() {
   const button = document.querySelector("#refresh-button");
   button.disabled = true;
   button.textContent = "Oppdaterer…";
+  document.querySelector("#updated-line").textContent = "Henter ferske data…";
+
+  const tasks = [
+    getJson("/api/overview").then((overview) => {
+      overviewState = overview;
+      document.querySelector("#contract-count").textContent = formatNumber(overview?.tables?.contracts);
+      document.querySelector("#weather-count").textContent = formatNumber(overview?.tables?.weatherObservations);
+      refreshModelStatus();
+    }),
+    getJson("/api/data-quality").then((quality) => {
+      setOverall(quality);
+      renderCollectionRuns(quality);
+      renderChecks(quality);
+      renderRanges(quality);
+      renderProblems(quality);
+    }),
+    getJson("/api/backfill/smhi/status").then(renderBackfill),
+    getJson("/api/signals/summary").then((signals) => {
+      signalsState = signals;
+      refreshModelStatus();
+    }),
+    getJson("/api/climate/status").then(renderClimate),
+    getJson("/api/geography").then(renderGeography),
+    getJson("/api/activity/status").then(renderPhaseBSummary),
+  ];
+
   try {
-    const [quality, backfill, db, status, signals, climate, geography, activity] = await Promise.all([
-      getJson("/api/data-quality"),
-      getJson("/api/backfill/smhi/status"),
-      getJson("/api/db-status"),
-      getJson("/api/status"),
-      getJson("/api/signals/summary"),
-      getJson("/api/climate/status"),
-      getJson("/api/geography"),
-      getJson("/api/activity/status"),
-    ]);
-    setOverall(quality);
-    document.querySelector("#contract-count").textContent = formatNumber(db?.tables?.contracts);
-    document.querySelector("#weather-count").textContent = formatNumber(db?.tables?.weatherObservations);
-    renderCollectionRuns(quality);
-    renderChecks(quality);
-    renderRanges(quality);
-    renderBackfill(backfill);
-    renderClimate(climate);
-    renderGeography(geography);
-    renderPhaseBSummary(activity);
-    renderModelStatus(status, signals);
-    renderProblems(quality);
-    document.querySelector("#updated-line").textContent = `Siden ble oppdatert ${formatTime(new Date().toISOString())}. Automatisk datainnhenting kjører hver time.`;
-  } catch (error) {
-    document.querySelector("#overall-pill").textContent = "Kunne ikke hente status";
-    document.querySelector("#updated-line").textContent = `Feil ved henting av status: ${error.message}`;
-    console.error(error);
+    const results = await Promise.allSettled(tasks);
+    const failed = results.filter((result) => result.status === "rejected");
+    document.querySelector("#updated-line").textContent = failed.length
+      ? `Siden ble oppdatert ${formatTime(new Date().toISOString())}. ${failed.length} del${failed.length === 1 ? "" : "er"} kunne ikke hentes.`
+      : `Siden ble oppdatert ${formatTime(new Date().toISOString())}. Automatisk datainnhenting kjører løpende.`;
+    for (const result of failed) console.error(result.reason);
   } finally {
     button.disabled = false;
     button.textContent = "Oppdater nå";
