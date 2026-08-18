@@ -43,14 +43,14 @@ const SOURCES = [
   },
   {
     key: "norrkoping_anslag",
-    name: "Norrköpings kommun – aktuelle anslag",
+    name: "Norrköpings kommun – offisiell anslagstavle",
     municipality: "Norrköping",
     customerPattern: "%Norrköping%",
-    url: "https://norrkoping.se/kommun-och-politik/riktlinjer-beslut-och-dokument/anslagstavla/aktuella-anslag",
+    url: "https://norrkoping.se/kommun-och-politik/beslut-dokument-taxor-och-avgifter/anslagstavla",
     mode: "listing",
     maxLinks: 16,
     hostPattern: /(^|\.)norrkoping\.se$/i,
-    linkTerms: /samh[aä]llsplaneringsn[aä]mnden|delegationsbeslut|upphandling|drift|underh[aå]ll|vinter|sn[oö]|gata|v[aä]g/i,
+    linkTerms: /samh[aä]llsplaneringsn[aä]mnden|delegationsbeslut|upphandling|beslut|protokoll|drift|underh[aå]ll|vinter|sn[oö]|gata|v[aä]g/i,
   },
   {
     key: "helsingborg_drift",
