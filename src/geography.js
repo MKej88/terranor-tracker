@@ -1,3 +1,5 @@
+import { QUARTER_END, QUARTER_START, TARGET_QUARTER } from "./config.js";
+
 function round(value, digits = 1) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
@@ -23,9 +25,9 @@ export async function getGeographyStatus(db) {
     JOIN weather_anchors a ON a.contract_id=c.id AND a.active=1
     LEFT JOIN weather_station_links l ON l.anchor_id=a.id AND l.active=1 AND l.source IN ('VVIS','SMHI')
     WHERE c.country='Sweden'
-      AND (c.start_date IS NULL OR c.start_date<='2026-09-30')
-      AND (c.end_date IS NULL OR c.end_date>='2026-07-01')
-    ORDER BY c.name, l.source, l.rank_no`).all();
+      AND (c.start_date IS NULL OR c.start_date<=?)
+      AND (c.end_date IS NULL OR c.end_date>=?)
+    ORDER BY c.name, l.source, l.rank_no`).bind(QUARTER_END, QUARTER_START).all();
 
   const map = new Map();
   for (const row of result?.results || []) {
@@ -83,6 +85,7 @@ export async function getGeographyStatus(db) {
     : 0;
 
   return {
+    quarter: TARGET_QUARTER,
     geographyVersion: "0.2",
     contracts: contracts.length,
     averageCoveragePct: avgCoverage,
