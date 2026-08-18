@@ -23,12 +23,15 @@ const esc = (value) => String(value ?? "")
 
 const countryName = (value) => value === "Denmark" ? "Danmark" : value === "Finland" ? "Finland" : value || "—";
 
-async function getJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, { cache: "no-store", ...options });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error || `${url}: ${response.status}`);
   return data;
 }
+
+const getJson = (url) => requestJson(url);
+const postJson = (url) => requestJson(url, { method: "POST" });
 
 function pill(id, text, ok = false) {
   const el = document.querySelector(id);
@@ -134,6 +137,7 @@ function renderClimate(climate) {
     document.querySelector(id).innerHTML = `
       <div class="status-row"><span>${countryName(country)} · Q3-værankere med full 10-årshistorikk</span><b>${fmt(row.targetsReady || 0)} / ${fmt(row.targets || 0)}</b></div>
       <div class="status-row"><span>Brukbare 10-årsjobber</span><b>${fmt(row.usablePct || 0)} %</b></div>
+      <div class="status-row"><span>Minste historiske dagdekning</span><b>${fmt(row.minimumHistoricalCoveragePct || 0, 1)} %</b></div>
       <div class="status-row"><span>Ikke tilgjengelige måneder</span><b>${fmt(row.unavailableTasks || 0)}</b></div>
       <div class="status-row"><span>Feil som prøves igjen</span><b class="${Number(row.errorTasks || 0) ? "text-warn" : "text-good"}">${fmt(row.errorTasks || 0)}</b></div>
       <div class="status-row"><span>Geografiske proxyer i Q3</span><b>${fmt(row.proxyTargets || 0)}</b></div>
@@ -236,7 +240,7 @@ async function runClimate(button) {
   button.disabled = true;
   button.textContent = "Henter historikk…";
   try {
-    const result = await getJson("/api/nordic/climate/run?tasks=12");
+    const result = await postJson("/api/nordic/climate/run?tasks=12");
     const failed = (result?.details || []).filter((row) => row.status === "feil").length;
     button.textContent = failed ? `${failed} feil – se status` : result.tasksAttempted ? `${result.tasksAttempted} historikkjobber ferdig` : "Alt er ferdig";
     await load();
