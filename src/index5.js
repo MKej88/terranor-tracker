@@ -1,5 +1,5 @@
 import worker from "./index4.js";
-import { getMunicipalStatus, runMunicipalMonitor } from "./municipal-monitor.js";
+import { getMunicipalStatus, runMunicipalMonitor } from "./municipal-monitor-filtered.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
@@ -42,6 +42,16 @@ export default {
           municipalError: String(error?.message || error),
         });
       }
+    }
+
+    if (url.pathname === "/api/activity/candidates" && !url.searchParams.get("status")) {
+      const base = await worker.fetch(request, env);
+      if (!base.ok) return base;
+      const data = await base.json();
+      return json({
+        ...data,
+        candidates: (data?.candidates || []).filter((row) => row.review_status === "ny"),
+      });
     }
 
     if (url.pathname === "/api/activity/run") {
