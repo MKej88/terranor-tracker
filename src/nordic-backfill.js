@@ -1,10 +1,12 @@
 import { ensureNordicSchema } from "./nordic.js";
+import { TRACKER_CONFIG } from "./config.js";
 
 const DMI_OBS_URL = "https://opendataapi.dmi.dk/v2/metObs/collections/observation/items";
 const FMI_WFS_URL = "https://opendata.fmi.fi/wfs";
 const DAY_MS = 86400000;
 const HOUR_MS = 3600000;
 const INSERT_ROWS_PER_QUERY = 11; // 11 rows x 9 bindings = 99, below D1's 100-bind limit.
+const CORE_FIELDS = ["air_temp_c", "wind_ms", "precipitation_mm"];
 
 const DMI_SPECS = [
   ["temp_dry", "air_temp_c"],
@@ -34,6 +36,7 @@ const BACKFILL_SCHEMA = [
 ];
 
 function numeric(value) {
+  if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -112,7 +115,7 @@ async function fetchDmiParameter(stationId, parameterId, startIso, endIso) {
     parameterId,
   });
   const response = await fetch(`${DMI_OBS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/1.1" },
+    headers: { "user-agent": "Terranor-Tracker/2.0" },
   });
   if (!response.ok) {
     const body = await response.text();
@@ -220,7 +223,7 @@ function parseFmi(xml, target) {
         raw: { location: target.label, requestedPlace: target.location_name, historicalBackfill: true, hourlyProduct: true },
       };
       row.station_id = stationId || row.station_id;
-      row[field] = value;
+      row[field] = field === "precipitation_mm" && value < 0 ? 0 : value;
       rows.set(observed, row);
     }
   }
@@ -238,16 +241,13 @@ async function backfillFmiTarget(db, target, startIso, endIso) {
     parameters: "TA_PT1H_AVG,RH_PT1H_AVG,WS_PT1H_AVG,PRA_PT1H_ACC",
   });
 
-  // Historical backfill uses FMI's dedicated hourly product rather than the real-time
-  // instantaneous query used by the live collector. Once the live collector has resolved
-  // a station, lock historical requests to that exact FMI station ID.
   const numericStationId = /^\d+$/.test(String(target.station_id || "")) ? String(target.station_id) : null;
   const selector = numericStationId ? `fmisid ${numericStationId}` : `place ${target.location_name}`;
   if (numericStationId) params.set("fmisid", numericStationId);
   else params.set("place", target.location_name);
 
   const response = await fetch(`${FMI_WFS_URL}?${params.toString()}`, {
-    headers: { "user-agent": "Terranor-Tracker/1.3", "accept": "application/xml,text/xml" },
+    headers: { "user-agent": "Terranor-Tracker/2.0", "accept": "application/xml,text/xml" },
   });
   if (!response.ok) {
     const body = await response.text();
@@ -259,9 +259,7 @@ async function backfillFmiTarget(db, target, startIso, endIso) {
     throw new Error(`FMI hourly ${selector} svarte med feil: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
   }
   const parsed = parseFmi(xml, target);
-  if (!parsed.rows.length) {
-    throw new Error(`FMI hourly ${selector} ga ingen historiske observasjoner for ${startIso}–${endIso}`);
-  }
+  if (!parsed.rows.length) throw new Error(`FMI hourly ${selector} ga ingen historiske observasjoner for ${startIso}–${endIso}`);
   if (parsed.stationId) {
     await db.prepare(`UPDATE nordic_weather_targets SET station_id=?, station_name=?, last_linked_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
       .bind(String(parsed.stationId), parsed.stationName, new Date().toISOString(), target.id).run();
@@ -280,13 +278,38 @@ async function backfillFmiTarget(db, target, startIso, endIso) {
 
 async function getTargetCoverage(db, target, days, nowMs) {
   if (!target.station_id) {
-    return { ...target, linked: false, earliest: null, latest: null, observations: 0, coveredDays: 0, complete: false };
+    return {
+      ...target, linked: false, earliest: null, latest: null, observations: 0,
+      coveredDays: 0, metricCoveragePct: {}, minimumCoreCoveragePct: 0, complete: false,
+    };
   }
-  const range = await db.prepare(`SELECT COUNT(*) AS observations, MIN(observed_at) AS earliest, MAX(observed_at) AS latest
-      FROM weather_observations WHERE source=? AND station_id=?`)
-    .bind(target.source, String(target.station_id)).first();
+  const cutoffIso = new Date(nowMs - days * DAY_MS).toISOString();
+  const range = await db.prepare(`SELECT
+      COUNT(*) AS observations,
+      MIN(observed_at) AS earliest,
+      MAX(observed_at) AS latest,
+      SUM(CASE WHEN air_temp_c IS NOT NULL THEN 1 ELSE 0 END) AS air_temp_hours,
+      SUM(CASE WHEN wind_ms IS NOT NULL THEN 1 ELSE 0 END) AS wind_hours,
+      SUM(CASE WHEN precipitation_mm IS NOT NULL THEN 1 ELSE 0 END) AS precipitation_hours,
+      SUM(CASE WHEN humidity_pct IS NOT NULL THEN 1 ELSE 0 END) AS humidity_hours
+    FROM weather_observations
+    WHERE source=? AND station_id=? AND observed_at>=?`)
+    .bind(target.source, String(target.station_id), cutoffIso).first();
   const earliestMs = range?.earliest && Number.isFinite(Date.parse(range.earliest)) ? Date.parse(range.earliest) : nowMs;
   const coveredDays = clamp((nowMs - earliestMs) / DAY_MS, 0, days);
+  const expectedHours = Math.max(1, days * 24);
+  const metricHours = {
+    air_temp_c: Number(range?.air_temp_hours || 0),
+    wind_ms: Number(range?.wind_hours || 0),
+    precipitation_mm: Number(range?.precipitation_hours || 0),
+    humidity_pct: Number(range?.humidity_hours || 0),
+  };
+  const metricCoveragePct = Object.fromEntries(Object.entries(metricHours).map(([field, count]) => [
+    field, Math.round(1000 * count / expectedHours) / 10,
+  ]));
+  const minimumCoreCoveragePct = Math.min(...CORE_FIELDS.map((field) => metricCoveragePct[field] || 0));
+  const fullSpan = coveredDays >= days - 0.25;
+  const complete = fullSpan && minimumCoreCoveragePct >= TRACKER_CONFIG.weatherQuality.readyMetricCoveragePct;
   return {
     ...target,
     linked: true,
@@ -294,7 +317,11 @@ async function getTargetCoverage(db, target, days, nowMs) {
     latest: range?.latest || null,
     observations: Number(range?.observations || 0),
     coveredDays: Math.round(coveredDays * 10) / 10,
-    complete: coveredDays >= days - 0.25,
+    expectedHours,
+    metricHours,
+    metricCoveragePct,
+    minimumCoreCoveragePct,
+    complete,
   };
 }
 
@@ -305,7 +332,10 @@ async function chooseTasks(db, days, maxTasks) {
   const coverage = [];
   for (const target of result?.results || []) coverage.push(await getTargetCoverage(db, target, days, nowMs));
   const incomplete = coverage.filter((x) => x.linked && !x.complete)
-    .sort((a, b) => a.coveredDays - b.coveredDays || String(a.source).localeCompare(String(b.source)) || Number(a.id) - Number(b.id));
+    .sort((a, b) => a.minimumCoreCoveragePct - b.minimumCoreCoveragePct
+      || a.coveredDays - b.coveredDays
+      || String(a.source).localeCompare(String(b.source))
+      || Number(a.id) - Number(b.id));
 
   const selected = [];
   const usedSources = new Set();
@@ -378,11 +408,12 @@ export async function runNordicBackfill(db, { days = 60, maxTasks = 2 } = {}) {
   return {
     ok: details.every((x) => x.status === "ok"),
     phase: "C",
+    qualityVersion: "2.0",
     days: wantedDays,
     tasksAttempted: details.length,
     details,
     completeBeforeRun: coverage.length > 0 && coverage.every((x) => x.complete),
-    note: "Historikken fylles bakover i små deler. Danmark aggregeres til timeverdier og bruker 7-dagersblokker; Finland bruker FMIs dedikerte timesprodukt i 14-dagersblokker og låst stasjons-ID når den er kjent.",
+    note: `Historikken fylles bakover i små deler. Danmark bruker 7-dagersblokker og Finland 14-dagersblokker. Ferdig status krever både full tidsutstrekning og minst ${TRACKER_CONFIG.weatherQuality.readyMetricCoveragePct} % dekning for temperatur, vind og nedbør.`,
   };
 }
 
@@ -396,11 +427,13 @@ export async function getNordicBackfillStatus(db, days = 60) {
   const linked = coverage.filter((x) => x.linked).length;
   const complete = coverage.filter((x) => x.complete).length;
   const avgCoverage = coverage.length
-    ? coverage.reduce((sum, x) => sum + x.coveredDays / wantedDays, 0) / coverage.length
+    ? coverage.reduce((sum, x) => sum + Math.min(x.minimumCoreCoveragePct || 0, 100) / 100, 0) / coverage.length
     : 0;
   return {
     phase: "C",
+    qualityVersion: "2.0",
     days: wantedDays,
+    requiredCoreMetricCoveragePct: TRACKER_CONFIG.weatherQuality.readyMetricCoveragePct,
     targets: coverage.length,
     targetsLinked: linked,
     targetsComplete: complete,
@@ -418,6 +451,8 @@ export async function getNordicBackfillStatus(db, days = 60) {
       latest: x.latest,
       observations: x.observations,
       covered_days: x.coveredDays,
+      metric_coverage_pct: x.metricCoveragePct,
+      minimum_core_coverage_pct: x.minimumCoreCoveragePct,
       complete: x.complete,
     })),
   };
