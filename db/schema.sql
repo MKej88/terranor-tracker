@@ -1,5 +1,9 @@
--- Terranor Tracker D1 schema
--- Database binding will be added after the D1 database is created in Cloudflare.
+-- Terranor Tracker 2.0 – D1 kjerneskjema
+--
+-- Dette er bootstrap-skjemaet for de delte kjernetabellene. Feature-spesifikke tabeller
+-- (værkoblinger, historikk, Trafikverket, kommunale kilder osv.) opprettes fortsatt
+-- idempotent av modulenes ensure*-funksjoner. Nye strukturelle endringer skal fremover
+-- dokumenteres her eller flyttes til eksplisitte migreringer før de tas i bruk.
 
 CREATE TABLE IF NOT EXISTS contracts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +77,10 @@ CREATE TABLE IF NOT EXISTS forecasts (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contract_unique ON contracts(country, name, start_date);
+CREATE INDEX IF NOT EXISTS idx_contract_start_date ON contracts(start_date);
 CREATE INDEX IF NOT EXISTS idx_weather_observed_at ON weather_observations(observed_at);
 CREATE INDEX IF NOT EXISTS idx_weather_contract ON weather_observations(contract_id);
+CREATE INDEX IF NOT EXISTS idx_weather_source_station_time ON weather_observations(source, station_id, observed_at);
 CREATE INDEX IF NOT EXISTS idx_signals_observed_at ON signals(observed_at);
 CREATE INDEX IF NOT EXISTS idx_forecasts_quarter_time ON forecasts(quarter, generated_at);
