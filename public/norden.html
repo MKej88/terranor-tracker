@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Danmark og Finland værstatus · Terranor Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero compact-hero">
+        <div>
+          <p class="eyebrow">FASE C · DANMARK OG FINLAND</p>
+          <h1>Nordisk værstatus</h1>
+          <p class="lede">Samlet kontroll av løpende DMI/FMI-data, 60-dagers historikk og Q3-sammenligningsgrunnlag for 2016–2025.</p>
+          <nav class="page-nav">
+            <a href="/">← Hovedsiden</a>
+            <a href="/status.html">Datastatus</a>
+            <a href="/sverige.html">Sverige vær</a>
+            <a href="/fase-c.html">Fase C</a>
+            <button id="run-climate" type="button">Fyll 10-årsgrunnlag nå</button>
+            <button id="refresh-button" type="button">Oppdater siden</button>
+          </nav>
+        </div>
+        <div class="pill" id="overall-pill">henter status…</div>
+      </header>
+
+      <section class="grid kpis status-kpis">
+        <article class="card">
+          <span>Danmark</span>
+          <strong id="denmark-targets">—</strong>
+          <small id="denmark-linked">værankere</small>
+        </article>
+        <article class="card">
+          <span>Finland</span>
+          <strong id="finland-targets">—</strong>
+          <small id="finland-linked">værankere</small>
+        </article>
+        <article class="card">
+          <span>60-dagers historikk</span>
+          <strong id="short-history">—</strong>
+          <small id="short-history-text">alle værankere</small>
+        </article>
+        <article class="card">
+          <span>10-årsgrunnlag</span>
+          <strong id="long-history">—</strong>
+          <small id="long-history-text">Q3 2016–2025</small>
+        </article>
+      </section>
+
+      <section class="grid two status-panel-gap">
+        <article class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">DANMARK</p><h2>Klar for Q3-væranalyse?</h2></div>
+            <span class="pill" id="denmark-pill">—</span>
+          </div>
+          <div class="status-list" id="denmark-readiness"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">FINLAND</p><h2>Klar for Q3-væranalyse?</h2></div>
+            <span class="pill" id="finland-pill">—</span>
+          </div>
+          <div class="status-list" id="finland-readiness"></div>
+        </article>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div><p class="eyebrow">10-ÅRIG SAMMENLIGNINGSGRUNNLAG</p><h2>Q3 2016–2025</h2></div>
+          <span class="pill" id="climate-pill">henter…</span>
+        </div>
+        <div class="progress-track"><div class="progress-bar" id="climate-progress"></div></div>
+        <p class="status-note" id="climate-detail">Henter status…</p>
+        <div class="grid two status-panel-gap">
+          <div class="status-list" id="denmark-climate"></div>
+          <div class="status-list" id="finland-climate"></div>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Land</th><th>Område</th><th>Målestasjon</th><th>Klare månedsjobber</th><th>Ikke tilgjengelig</th><th>Feil</th><th>Gjenstår</th><th>Geografi</th>
+              </tr>
+            </thead>
+            <tbody id="climate-body"><tr><td colspan="8">Henter historikkstatus…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div><p class="eyebrow">VÆR MOT HISTORIKK</p><h2>Siste 7 dager mot 2016–2025</h2></div>
+          <span class="pill" id="comparison-pill">henter…</span>
+        </div>
+        <div class="grid kpis status-kpis">
+          <article class="card"><span>Danmark klare områder</span><strong id="denmark-ready">—</strong><small id="denmark-comparison-text">historisk sammenligning</small></article>
+          <article class="card"><span>Danmark arbeidsforhold</span><strong id="denmark-anomaly">—</strong><small>positivt = mer arbeidsvennlig</small></article>
+          <article class="card"><span>Finland klare områder</span><strong id="finland-ready">—</strong><small id="finland-comparison-text">historisk sammenligning</small></article>
+          <article class="card"><span>Finland arbeidsforhold</span><strong id="finland-anomaly">—</strong><small>positivt = mer arbeidsvennlig</small></article>
+        </div>
+        <p class="status-note" id="comparison-note"></p>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Land</th><th>Område</th><th>Målestasjon</th><th>Temp. avvik</th><th>Nedbørshendelser</th><th>Høy vind</th><th>Arbeidsforhold</th><th>Historiske år</th>
+              </tr>
+            </thead>
+            <tbody id="comparison-body"><tr><td colspan="8">Henter sammenligning…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="grid two status-panel-gap">
+        <article class="panel">
+          <div class="panel-head"><div><p class="eyebrow">DATADEKNING</p><h2>Hva systemet kontrollerer</h2></div></div>
+          <div class="status-list">
+            <div class="status-row"><span>Løpende dansk vær</span><b>DMI</b></div>
+            <div class="status-row"><span>Løpende finsk vær</span><b>FMI</b></div>
+            <div class="status-row"><span>Kort historikk</span><b>60 dager</b></div>
+            <div class="status-row"><span>Lang historikk</span><b>Q3 2016–2025</b></div>
+            <div class="status-row"><span>Historiske parametere</span><b>temperatur · vind · nedbør</b></div>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><div><p class="eyebrow">BEGRENSNINGER</p><h2>Hva «klart» ikke betyr</h2></div></div>
+          <div class="problem-list">
+            <div class="problem-row"><div><b>Geografiske proxyer</b><span>Flere danske statlige områder og enkelte finske områder bruker representative værpunkter, ikke eksakte kontraktspolygoner.</span></div></div>
+            <div class="problem-row"><div><b>Økonomisk vekting</b><span>Ikke alle nordiske værankere er koblet til dokumentert årlig kontraktsomsetning. Væranalysen blir derfor ikke automatisk et resultatestimat.</span></div></div>
+            <div class="problem-row"><div><b>Samme stasjon over tid</b><span>10-årsgrunnlaget bruker samme målestasjon som live-kjeden. Hvis stasjonen mangler eldre data, vises dette som manglende historikk i stedet for å bytte stasjon automatisk.</span></div></div>
+          </div>
+        </article>
+      </section>
+
+      <p class="updated-line" id="updated-line">—</p>
+      <footer>Terranor Tracker · Danmark og Finland værstatus</footer>
+    </main>
+    <script src="/norden.js" type="module"></script>
+  </body>
+</html>

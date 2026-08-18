@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "terranor-tracker",
-  "main": "src/index5.js",
+  "main": "src/index6.js",
   "compatibility_date": "2026-08-16",
   "assets": {
     "directory": "./public",
@@ -27,6 +27,7 @@
       "5 * * * *",
       "15 * * * *",
       "25 * * * *",
+      "30 * * * *",
       "35 * * * *",
       "40 * * * *",
       "45 * * * *",
