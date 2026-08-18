@@ -1,9 +1,7 @@
 import worker from "./index5.js";
-import {
-  getNordicClimateStatus,
-  runNordicClimateArchive,
-} from "./nordic-climate.js";
+import { runNordicClimateArchive } from "./nordic-climate.js";
 import { getNordicClimateComparison } from "./nordic-climate-comparison.js";
+import { getNordicClimateStatus } from "./nordic-climate-status.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
