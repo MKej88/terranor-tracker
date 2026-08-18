@@ -316,11 +316,19 @@ export async function seedContracts(db) {
   await ensureSchema(db);
 
   const statements = CONTRACT_SEEDS.map((item) =>
-    db
-      .prepare(`INSERT OR IGNORE INTO contracts (
+    db.prepare(`INSERT INTO contracts (
         country, name, customer, contract_type, start_date, end_date,
         total_value_msek, annual_run_rate_msek, source_url, confidence
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(country, name, start_date) DO UPDATE SET
+        customer=COALESCE(excluded.customer, contracts.customer),
+        contract_type=COALESCE(excluded.contract_type, contracts.contract_type),
+        end_date=COALESCE(excluded.end_date, contracts.end_date),
+        total_value_msek=COALESCE(excluded.total_value_msek, contracts.total_value_msek),
+        annual_run_rate_msek=COALESCE(excluded.annual_run_rate_msek, contracts.annual_run_rate_msek),
+        source_url=COALESCE(excluded.source_url, contracts.source_url),
+        confidence=COALESCE(excluded.confidence, contracts.confidence),
+        updated_at=CURRENT_TIMESTAMP`)
       .bind(
         item.country,
         item.name,

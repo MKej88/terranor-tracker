@@ -416,7 +416,7 @@ async function runMonitor() {
   button.disabled = true;
   button.textContent = "Søker…";
   try {
-    const result = await getJson("/api/activity/run");
+    const result = await getJson("/api/activity/run", { method: "POST" });
     const companyFound = Number(result?.candidatesWritten || 0);
     const municipalFound = Number(result?.municipal?.candidatesWritten || 0);
     const found = companyFound + municipalFound;

@@ -1,245 +1,233 @@
 # Terranor Tracker
 
-Privat verktøy for løpende resultatestimat for Terranor Group. Målet er å samle kontrakter, værforhold, tilleggsarbeider, bestillinger og historiske estimater i én modell frem mot kvartalsrapportene.
+Privat analyseverktøy for løpende oppfølging av Terranor Group. Trackeren samler kontrakter, vær, historiske sammenligninger, offentlige tildelinger, planlagte anskaffelser, tilleggsarbeider og andre kildebelagte aktivitetssignaler frem mot kvartalsrapportene.
 
-Første hovedmål er Q3 2026.
+Nåværende målkvartal er **Q3 2026**.
 
-## Hva systemet gjør
+## Terranor Tracker 2.0
 
-Systemet følger flere typer informasjon som kan påvirke Terranors omsetning og lønnsomhet:
+Versjon 2.0 rydder opp den tekniske arkitekturen og skjerper datakvaliteten før selve resultatmodellen bygges videre.
 
-- **Kontrakter:** start- og sluttdato, kontraktsverdi, årlig omsetningstakt og geografi.
-- **Veivær i Sverige:** målinger fra Trafikverkets værstasjoner langs veiene.
-- **Vanlig svensk vær:** målinger fra Sveriges meteorologiske og hydrologiske institutt.
-- **Dansk vær:** meteorologiske observasjoner fra Danmarks Meteorologiske Institut.
-- **Finsk vær:** meteorologiske observasjoner fra Finlands meteorologiske institutt.
-- **Historisk vær:** brukes for å sammenligne dagens forhold med tidligere år på samme sted og samme tid på året.
-- **Tilleggsarbeider og aktivitetssignaler:** bestillinger, utløste opsjoner og andre kildebelagte signaler.
-- **Løpende resultatestimat:** omsetning, justert EBITA og etter hvert avvik mot markedets forventninger.
-- **Historikk:** gamle estimater beholdes i stedet for å overskrives.
+De viktigste prinsippene er:
+
+- **Én Worker-inngang:** `src/worker.js` håndterer innlogging, API-ruting og alle planlagte jobber.
+- **Én kvartalskonfigurasjon:** målkvartal, datoer og kvalitetsgrenser ligger i `src/config.js`.
+- **Manglende data er ikke godt vær:** værscorer beregnes bare når kritiske parametre har tilstrekkelig dekning.
+- **Ferdig betyr faktisk dekning:** 60-dagershistorikk og 10-årsgrunnlag vurderes på parameterdekning, ikke bare eldste observasjon eller antall kjørte jobber.
+- **Kildebelagte signaler holdes adskilt fra estimater:** ordre, opsjoner og offentlige funn blir ikke automatisk omgjort til omsetning eller EBITA.
+- **Endringer skal kunne testes:** grunnleggende tester kjøres automatisk i GitHub Actions før kode flettes til `main`.
 
 ## Sider
 
-- `/` – hovedside for resultatestimatet.
-- `/status.html` – kort drifts- og datastatus.
-- `/fase-b.html` – Fase B: tilleggsarbeider, opsjoner og bestillinger.
-- `/fase-c.html` – Fase C: danske og finske værdata, historikk og geografisk dekning.
+- `/` – hovedside og overordnet datastatus.
+- `/status.html` – svensk vær, datakvalitet, historikk og geografi.
+- `/sverige.html` – detaljert svensk vær- og kontraktsvisning.
+- `/fase-b.html` – kontrakter, tilleggsarbeider, offentlige tildelinger og aktivitetssignaler.
+- `/fase-c.html` – løpende vær og 60-dagershistorikk for Danmark og Finland.
+- `/norden.html` – nordisk 10-årsgrunnlag og historisk sammenligning.
 
-Statussiden er bevisst holdt relativt kort. Fase B og Fase C har egne detaljsider for å unngå unødvendig scrolling.
+## Datakilder
 
-## Forklaring av værkildene
+### Sverige
 
-Forkortelsene brukes i koden og i enkelte API-adresser, men nettsiden bruker mer forklarende navn.
-
-- **VViS:** Trafikverkets system for veiværstasjoner i Sverige.
-- **SMHI:** Sveriges meteorologiske og hydrologiske institutt.
-- **DMI:** Danmarks Meteorologiske Institut. Fase C bruker det åpne API-et for meteorologiske observasjoner.
-- **FMI:** Finlands meteorologiske institutt. Fase C bruker instituttets åpne WFS-tjeneste for observasjoner.
-
-## Værbaserte arbeidsforhold
-
-Systemet beregner en egen score for hvor gunstige værforholdene er for drift og vedlikehold. I koden heter funksjonen fortsatt `workability`, men på nettsiden omtales den som **værbaserte arbeidsforhold**.
-
-Scoren bruker blant annet nedbør, vind, snø, veibanetemperatur, frost, sterk varme og datadekning. Dette er **ikke et direkte omsetningsestimat**.
-
-Fra Fase A brukes flere målestasjoner per svensk kontrakt. Store driftsområder kan bruke opptil tre veiværstasjoner og to vanlige værstasjoner.
-
-## Fase A – historikk og geografi
-
-Fase A er teknisk bygget og datainnhenting/sluttkontroll pågår.
-
-### Tiårig sammenligningsgrunnlag
-
-Systemet henter gradvis kvalitetssikret historisk vær fra SMHIs korrigerte arkiv. For Q3 brukes perioden **2016–2025** som et tiårig sammenligningsgrunnlag for lufttemperatur, vindhastighet og nedbør.
-
-Dette omtales som et **tiårig sammenligningsgrunnlag**, ikke som SMHIs offisielle klimanormal. Én kombinasjon av værstasjon og værparameter behandles automatisk per time. Resultatet lagres som kompakte sammenligningstall for juli, august og september.
-
-`/api/climate/comparison` kan brukes til å sammenligne aktuelle forhold med det tiårige grunnlaget når tilstrekkelig historikk er klar.
-
-### Bedre geografisk dekning
-
-Den løpende svenske scoren bruker flere målestasjoner per kontrakt der de finnes. Avstand og rangering påvirker vektingen. Geografien bygger fortsatt på representative midtpunkter; eksakte kontraktspolygoner kan forbedre modellen senere.
-
-## Fase B – tilleggsarbeider, opsjoner og bestillinger
-
-Fase B fanger opp dokumenterte aktivitetssignaler som kan gi informasjon om fremtidig arbeidsmengde og lønnsomhet.
-
-`/fase-b.html` viser aktive kilder, nye kandidater, mulig kontraktskobling, oppgitt verdi, relevans og registrerte signaler. Nye kandidater kan godkjennes eller ignoreres direkte på siden.
-
-Terranors offisielle svenske nyhetsside kontrolleres automatisk hver sjette time. Tydelige opsjoner, tilleggsarbeider og nye bestillinger kan registreres som signaler. Nye hovedkontrakter håndteres separat for å unngå dobbelttelling.
-
-Et ordre- eller aktivitetssignal blir **ikke automatisk omgjort til omsetning eller justert EBITA**.
-
-## Fase C – Danmark og Finland
-
-Fase C bygger meteorologisk datagrunnlag for danske og finske kontraktsområder. De levende datakjedene for både Danmark og Finland er teknisk validert. Historikk og bredere geografisk dekning bygges nå videre.
+- **SMHI:** vanlig meteorologisk vær.
+- **Trafikverket VViS:** veivær, inkludert veibanetemperatur og andre forhold langs veiene.
+- **Trafikverket – tildelte kontrakter:** Terranors deltakelse, vinnere, tilbud og kontraktsverdier.
+- **Trafikverket – planlagte anskaffelser:** fremtidig pipeline for relevante drifts- og vedlikeholdsanskaffelser.
 
 ### Danmark
 
-Systemet bruker DMI sitt åpne API for meteorologiske observasjoner. For hvert dansk væranker velges nærmeste aktive målestasjon som eksplisitt støtter alle fire nødvendige værparametere:
-
-- lufttemperatur
-- vindhastighet
-- relativ luftfuktighet
-- nedbør siste time
-
-De direkte kontraktsankrene er **Ikast-Brande, Tønder og København**. Den første valideringen ga fullført innhenting for alle tre, med Isenvad, Store Jyndevad og Københavns Lufthavn som valgte målestasjoner.
-
-Vejdirektoratets statlige 2026-2029-ramme består av fem geografiske områder: to i Norddanmark, ett i Syddanmark og to i Østdanmark. Terranor vant alle unntatt Syddanmark. Trackeren har derfor fire ekstra **regionale værproxyer** for Terranors statlige områder. Proxyene dekker Norddanmark/Midtjylland og Østdanmark, men skal erstattes av eksakte delkontraktsgrenser når anbudsdokumentene er hentet.
+- **DMI:** meteorologiske observasjoner for Terranor-relaterte kontraktsområder og regionale proxyer.
 
 ### Finland
 
-Systemet bruker FMI sin åpne WFS-tjeneste. Den opprinnelige kjeden for **Kemi, Ii og Sørøst-Finland** er manuelt validert uten feil, og **Järvenpää** er lagt til etter Q1-meldingen om den nye kommunale kontrakten.
+- **FMI:** timebaserte observasjoner via instituttets WFS-tjeneste for Terranor-relaterte områder.
 
-I tillegg er geografien utvidet med Terranor Oys offentlig listede referanseområder der den oppgitte kontraktsperioden inkluderer 2026. Det omfatter blant annet Kuhmo, Mikkeli, Vuosaari, Kajaani, Kangasniemi, Kauhajoki, Pieksämäki, Suomussalmi, Hollola, Jyväskylä, Keuruu, Lahti, Rovaniemi, Sastamala og Raasepori. Kemi ligger allerede i grunnsettet.
+### Fase B
 
-Disse områdene brukes først og fremst til **værdekning**. Kontraktsverdi og årlig omsetningstakt er ikke dokumentert i trackeren for alle områdene, og de blir derfor ikke økonomisk vektet uten videre.
+- Terranors offisielle nyhetsside.
+- Trafikverkets offentlige kontrakts- og innkjøpskilder.
+- Utvalgte kommunale sider og e-Avrop for kontraktsnære beslutninger, tildelinger, opsjoner og oppfølging.
 
-FMI-innhentingen er bygget om slik at flere finske steder kan hentes parallelt i små grupper, slik at den bredere geografien ikke gjør den timebaserte jobben unødvendig treg.
+## Kvalitetsregler i 2.0
 
-### 60-dagers historikk
+Kritiske værparametre er **lufttemperatur, vind og nedbør**.
 
-Fase C har egen progressiv historikkinnlasting for Danmark og Finland.
+### Løpende arbeidsforhold
 
-- Danmark fylles bakover i **7-dagersblokker**.
-- Finland fylles bakover i **14-dagersblokker**.
-- Systemet prioriterer områder med minst historisk dekning.
-- Det forsøkes normalt én dansk og én finsk historikkjobb per time så lenge begge land mangler data.
-- Når ett land er ferdig, kan ledig kapasitet brukes på det andre.
-- Historikken lagres i den samme observasjonstabellen som live-data og overskriver ikke andre kilder.
+En værscore beregnes bare når kritiske parametre har minst **70 % dekning** i den aktuelle perioden. Hver parameter bruker sin egen nevner, slik at manglende nedbørs- eller vindmålinger ikke feilaktig tolkes som godt vær.
 
-`/fase-c.html` viser samlet fremdrift, antall ferdige værankere, gjennomsnittlig antall historiske dager per land og siste historikkjobb. Knappen **Fyll historikk nå** kan brukes til en manuell delkjøring.
+### 60-dagershistorikk
 
-### Viktig modellregel
+Et væranker regnes som ferdig når:
 
-DMI- og FMI-data blir **ikke automatisk gjort om til omsetning eller justert EBITA**. Først må geografisk dekning, historikk og forholdet mellom vær og kontraktsøkonomi valideres.
+1. tidsintervallet faktisk dekker hele den ønskede perioden, og
+2. temperatur, vind og nedbør hver har minst **85 % dekning**.
 
-## Nåværende status
+Dette gjelder både Sverige og den nordiske historikkjeden.
 
-Følgende er satt opp eller i aktiv innsamling:
+### 10-årsgrunnlag
 
-- privat innlogging
-- Cloudflare D1-database
-- kontraktsregister
-- svenske veivær- og meteorologiske data
-- 60-dagers svensk værhistorikk
-- tiårig svensk sammenligningsgrunnlag
-- flerstasjonsdekning for svenske arbeidsforhold
-- Fase B-kandidat- og signalregister
-- automatisk overvåking av Terranors offisielle nyhetsside
-- validert levende DMI-innsamling for Danmark
-- validert levende FMI-innsamling for Finland
-- fire regionale DMI-proxyer for Terranors danske statlige 2026-2029-områder
-- utvidet Finland-geografi basert på Terranor Oys offentlige referanseliste
-- parallell FMI-innhenting for flere finske områder
-- progressiv 60-dagershistorikk for Danmark og Finland
-- egen Fase B-side og egen Fase C-side
-- kvalitetskontroll og historikk
+For Q3 brukes **2016–2025** som tiårig sammenligningsgrunnlag. Dette er ikke en offisiell 30-års klimanormal.
 
-## Automatisk kjøring
+En historisk stasjon eller et væranker regnes som klart når alle tre kritiske parametre har:
 
-Cloudflare kjører hovedjobben hver time, 15 minutter over hel time:
+- minst **9 historiske år**, og
+- minst **85 % dekning av Q3-dagene** i sammenligningsperioden.
 
-```text
-15 * * * *
-```
+## Værbaserte arbeidsforhold
 
-Den timebaserte jobben kjører blant annet:
+`src/workability.js` beregner en absolutt score for hvor arbeidsvennlige forholdene er. Flere målestasjoner kan inngå per kontrakt, med avstands- og rangeringsvekting. Når både VViS og SMHI finnes, får veivær størst vekt.
 
-1. nye svenske meteorologiske målinger
-2. nye svenske veiværmålinger
-3. beregning av værbaserte arbeidsforhold
-4. gradvis svensk 60-dagershistorikk
-5. gradvis tiårig svensk sammenligningsgrunnlag
-6. danske DMI-observasjoner
-7. finske FMI-observasjoner
-8. gradvis dansk og finsk 60-dagershistorikk
-9. hver sjette time: Fase B-kildeovervåking
+Scoren er **ikke et direkte resultatestimat**. Historisk væravvik beregnes separat mot 10-årsgrunnlaget.
 
-## Teknisk oppbygning
+## Trafikverket-pipeline
 
-- **Cloudflare Worker:** serverløs bakgrunnstjeneste for API og tidsstyrte jobber.
-- **Cloudflare D1:** databasen for kontrakter, værmålinger, signaler og historikk.
-- **Workers Static Assets:** nettsidene og JavaScript-filene.
-- **Cron:** tidsplanen som starter den automatiske jobben.
-- **API:** grensesnittet sidene bruker for å hente data.
+Trafikverket-modulen lagrer:
 
-## Mappestruktur
+- Terranor-deltakelser og vinn/tap.
+- Alle tilbydere i de relevante anskaffelsene.
+- kontraktsverdi inklusive opsjoner fra Trafikverkets fil.
+- planlagte relevante anskaffelser og JournalID.
+- snapshots av endringer i innkjøpsplanen.
+
+XLSX-filene identifiseres med **SHA-256-hash**. Dermed oppdages en ny versjon også hvis Trafikverket erstatter innholdet bak samme URL.
+
+Ved innkjøpsplanimport skrives den nye versjonen først. Gamle rader deaktiveres først etter at hele den nye versjonen er skrevet, slik at en avbrutt import ikke tømmer den aktive pipelinen.
+
+## Kommunale kilder
+
+Kommunale funn blir kandidater for vurdering. I 2.0 krever automatisk kontraktskobling tekst som faktisk skiller kontrakten fra kommunen generelt. Det er ikke lenger nok at kommunen bare har én kjent Terranor-kontrakt.
+
+Hvis en detaljside midlertidig ikke kan hentes, markeres den ikke som ferdig behandlet; den prøves igjen ved neste kjøring. PDF-lenker som ikke leses som fulltekst merkes eksplisitt som vurdert ut fra lenketittel og kontekst.
+
+## Kontraktsregister
+
+Kontrakter seedes fra kode til D1. Seeds bruker kontrollert UPSERT i stedet for `INSERT OR IGNORE`, slik at korrigerte verdier i kode kan oppdatere eksisterende D1-rader uten å nullstille tidligere dokumenterte verdier.
+
+## Arkitektur
 
 ```text
-public/index.html              Hovedsiden
-public/status.html             Kort drifts- og datastatus
-public/fase-b.html             Fase B
-public/fase-b.js               Fase B-visning og behandling
-public/fase-c.html             Fase C – Danmark og Finland
-public/fase-c.js               Fase C-status, historikk og manuelle kjøringer
-src/index.js                   Grunnleggende API og svensk innsamling
-src/index2.js                  Utvidede API-funksjoner og planlagte jobber
-src/weather.js                 Vanlige svenske værdata
-src/vvis.js                    Veivær fra Trafikverket
-src/workability.js             Værbaserte arbeidsforhold
-src/backfill.js                60-dagers svensk historikk
-src/climate.js                 Tiårig svensk sammenligningsgrunnlag
-src/geography.js               Svensk geografisk værdekning
-src/activity.js                Fase B-kildeovervåking
-src/nordic.js                  Fase C – grunnskjema og status
-src/dmi.js                     Fase C – dansk DMI-innsamling
-src/fmi.js                     Fase C – parallell finsk FMI-innsamling
-src/nordic-contracts.js        Fase C-kontrakter som manglet i grunnregisteret
-src/nordic-extra-targets.js    Finske værankere og porteføljereferanser
-src/nordic-denmark-targets.js  Regionale værproxyer for danske statskontrakter
-src/nordic-backfill.js         Progressiv 60-dagershistorikk for Danmark/Finland
-src/bridge.js                  Kontraktsbro for Q3
-src/signals.js                 Aktivitetssignaler
-src/quality.js                 Kvalitetskontroll
-db/                            Databaseskjema
-wrangler.jsonc                 Cloudflare-oppsett
-package.json                   Tekniske kommandoer
+Cloudflare
+│
+├─ Worker: src/worker.js
+│  ├─ autentisering
+│  ├─ API-router
+│  └─ cron-dispatcher
+│
+├─ D1: terranor-tracker-db
+└─ Static Assets: public/
 ```
 
-## Viktige API-adresser
+Den gamle `index.js`–`index6.js`-kjeden er fjernet. `wrangler.jsonc` peker direkte på `src/worker.js`, og ny funksjonalitet skal legges i featuremoduler og registreres i den samlede routeren i stedet for å opprette nye wrapper-lag.
+
+### Viktige moduler
 
 ```text
-/api/health                       Grunnleggende status
-/api/status                       Samlet status for datainnsamlingen
-/api/contracts                    Kontraktsregister
-/api/weather/contracts            Svenske værstasjoner per kontrakt
-/api/vvis/contracts               Svenske veiværstasjoner per kontrakt
-/api/workability                  Værbaserte arbeidsforhold
-/api/workability/history          Historikk for arbeidsforhold
-/api/backfill/smhi/status         Status for 60-dagers svensk værhistorikk
-/api/climate/status               Status for tiårig sammenligningsgrunnlag
-/api/climate/run                  Kjør neste historiske arkivjobb manuelt
-/api/climate/comparison           Vær mot tiårig sammenligningsgrunnlag
-/api/geography                    Svensk geografisk dekning
-/api/activity/run                 Kjør Fase B manuelt
-/api/activity/status              Status for Fase B
-/api/activity/candidates          Fase B-kandidater
-/api/activity/review              Godkjenn eller ignorer kandidat
-/api/nordic/run                   Kjør Fase C live; country=Denmark/Finland/all
-/api/nordic/status                Fase C-status og værankere
-/api/nordic/backfill/run          Kjør neste historikkdel manuelt
-/api/nordic/backfill/status       Fremdrift for 60-dagershistorikk
-/api/contract-bridge              Kontraktsbro for Q3
-/api/signals                      Registrerte aktivitetssignaler
-/api/data-quality                 Kvalitetskontroll
+src/worker.js                    Samlet Worker-router og cron-dispatcher
+src/config.js                    Målkvartal og kvalitetsgrenser
+src/db.js                        Kjerne-tabeller og kontraktseeds
+src/weather.js                   SMHI live-data
+src/vvis.js                      Trafikverket VViS
+src/workability.js               Værbaserte arbeidsforhold
+src/backfill.js                  Svensk 60-dagershistorikk
+src/climate.js                   Svensk 10-årsgrunnlag
+src/climate-status.js            Streng readiness for svensk historikk
+src/geography.js                 Svensk geografisk dekning
+src/activity.js                  Terranor-nyheter og aktivitetssignaler
+src/trafikverket-procurement.js  Trafikverket tildelinger og pipeline
+src/municipal-monitor.js         Kommunale/offentlige kilder
+src/nordic.js                    Nordisk værgrunnlag
+src/dmi.js                       Danmark live-data
+src/fmi.js                       Finland live-data
+src/nordic-backfill.js           Nordisk 60-dagershistorikk
+src/nordic-climate.js            Nordisk 10-årsarkiv
+src/nordic-climate-status.js     Streng nordisk readiness
+src/weather-quality.js           Felles kvalitetsfunksjoner
+test/                            Automatiske tester
 ```
 
-## Arbeidsplan frem mot Q3 2026
+## Planlagte jobber
 
-1. **Fase A – pågår:** fullfør historikk og sluttvalider geografisk dekning.
-2. **Fase B – pågår:** bygg ut offentlige kilder for tilleggsarbeider og bestillinger.
-3. **Fase C – pågår:** fyll 60-dagershistorikk, valider de utvidede finske områdene og erstatt danske regionale proxyer med eksakte delkontraktsgrenser.
-4. Etter Q2-rapporten: sammenlign den låste Q2-modellen med faktiske tall.
-5. Kalibrer modellen én gang og dokumenter endringene.
-6. Lås Q3-metodikken og lagre alle senere estimater uten overskriving.
-7. Sammenlign låst Q3-estimat med markedets forventninger og faktiske Q3-tall.
+Jobbene er bevisst fordelt utover timen for å redusere samtidige tunge kall.
 
-## Lokale kommandoer
+| Tid | Jobb |
+|---|---|
+| `5 * * * *` | SMHI live |
+| `15 * * * *` | Trafikverket VViS |
+| `25 * * * *` | DMI live |
+| `30 * * * *` | Nordisk 10-årsgrunnlag |
+| `35 * * * *` | FMI live |
+| `40 * * * *` | Danmark/Finland 60-dagershistorikk |
+| `45 * * * *` | Sverige 60-dagershistorikk |
+| `50 * * * *` | Svensk 10-årsgrunnlag |
+| `55 * * * *` | Værbaserte arbeidsforhold |
+| `0 */6 * * *` | Terranor aktivitetssignaler |
+| `10 2 * * *` | Trafikverket tildelinger/pipeline |
+| `20 3 * * *` | Kommunale kilder |
+
+## API
+
+Lesende endepunkter bruker normalt `GET`. Manuelle handlinger som starter innsamling eller endrer data bruker `POST`.
+
+Eksempler:
+
+```text
+GET  /api/health
+GET  /api/overview
+GET  /api/contracts
+GET  /api/data-quality
+GET  /api/workability
+GET  /api/backfill/smhi/status
+POST /api/backfill/smhi/run
+GET  /api/climate/status
+GET  /api/climate/comparison
+POST /api/climate/full-run
+GET  /api/activity/status
+POST /api/activity/run
+GET  /api/trafikverket/status
+GET  /api/trafikverket/awards
+GET  /api/trafikverket/plan
+POST /api/trafikverket/run
+GET  /api/municipal/status
+POST /api/municipal/run
+GET  /api/nordic/backfill/status
+POST /api/nordic/backfill/run
+GET  /api/nordic/climate/status
+GET  /api/nordic/climate/comparison
+POST /api/nordic/climate/run
+```
+
+Alle private API-endepunkter bruker samme innloggingssesjon. POST-kall kontrollerer også Origin når nettleseren sender den.
+
+## Sikkerhet
+
+- APP_PASSWORD og SESSION_SECRET lagres som Cloudflare-secrets.
+- Sesjonen er HMAC-SHA256-signert og tidsbegrenset.
+- Cookie bruker `HttpOnly`, `Secure` og `SameSite=Strict`.
+- HTML-svar får blant annet CSP, `frame-ancestors 'none'`, `X-Content-Type-Options` og restriktiv referrer-policy.
+- Eksterne tekstverdier escapes før de settes inn i de oppdaterte detaljsidene.
+
+## Tester og CI
+
+Kjør lokalt:
 
 ```bash
-npm install
-npm run dev
+npm test
 npm run check
-npm run deploy
 ```
+
+GitHub Actions kjører begge kontrollene automatisk på pull requests og ved push til `main`.
+
+## Viktig modellregel
+
+Ingen av følgende skal automatisk bli bokført som kvartalsomsetning eller justert EBITA uten en eksplisitt modellregel:
+
+- godt eller dårlig vær
+- aktivitetssignal
+- offentlig bestilling
+- opsjon
+- planlagt anskaffelse
+- kontraktsverdi
+
+Trackeren skal først samle, kvalitetssikre og dokumentere data. Selve økonomiske oversettelsen skal være separat, versjonert og mulig å etterprøve.

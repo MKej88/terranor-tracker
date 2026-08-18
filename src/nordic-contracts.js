@@ -63,10 +63,19 @@ const PHASE_C_CONTRACTS = [
 
 export async function ensureNordicContracts(db) {
   if (!db) throw new Error("D1-bindingen DB mangler");
-  const statements = PHASE_C_CONTRACTS.map((item) => db.prepare(`INSERT OR IGNORE INTO contracts (
+  const statements = PHASE_C_CONTRACTS.map((item) => db.prepare(`INSERT INTO contracts (
       country, name, customer, contract_type, start_date, end_date,
       total_value_msek, annual_run_rate_msek, source_url, confidence
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(country, name, start_date) DO UPDATE SET
+      customer=COALESCE(excluded.customer, contracts.customer),
+      contract_type=COALESCE(excluded.contract_type, contracts.contract_type),
+      end_date=COALESCE(excluded.end_date, contracts.end_date),
+      total_value_msek=COALESCE(excluded.total_value_msek, contracts.total_value_msek),
+      annual_run_rate_msek=COALESCE(excluded.annual_run_rate_msek, contracts.annual_run_rate_msek),
+      source_url=COALESCE(excluded.source_url, contracts.source_url),
+      confidence=COALESCE(excluded.confidence, contracts.confidence),
+      updated_at=CURRENT_TIMESTAMP`)
     .bind(item.country, item.name, item.customer, item.contractType, item.startDate, item.endDate,
       item.totalValue, item.annualRunRate, item.sourceUrl, item.confidence));
   if (statements.length) await db.batch(statements);

@@ -1,6 +1,11 @@
-const TARGET_QUARTER = "Q3 2026";
-const Q3_START = Date.UTC(2026, 6, 1, 0, 0, 0);
-const Q3_END = Date.UTC(2026, 8, 30, 23, 59, 59);
+import {
+  QUARTER_END,
+  QUARTER_END_MS,
+  QUARTER_START,
+  QUARTER_START_MS,
+  TARGET_QUARTER,
+  TRACKER_CONFIG,
+} from "./config.js";
 
 const WORKABILITY_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS workability_snapshots (
@@ -35,6 +40,7 @@ function clamp(value, min, max) {
 }
 
 function num(value) {
+  if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -46,11 +52,11 @@ function round(value, digits = 1) {
 }
 
 function daysOverlap(startText, endText) {
-  const start = startText ? Date.parse(`${startText}T00:00:00Z`) : Q3_START;
-  const end = endText ? Date.parse(`${endText}T23:59:59Z`) : Q3_END;
+  const start = startText ? Date.parse(`${startText}T00:00:00Z`) : QUARTER_START_MS;
+  const end = endText ? Date.parse(`${endText}T23:59:59Z`) : QUARTER_END_MS;
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
-  const overlapStart = Math.max(start, Q3_START);
-  const overlapEnd = Math.min(end, Q3_END);
+  const overlapStart = Math.max(start, QUARTER_START_MS);
+  const overlapEnd = Math.min(end, QUARTER_END_MS);
   if (overlapEnd < overlapStart) return 0;
   return Math.floor((overlapEnd - overlapStart) / 86400000) + 1;
 }
@@ -60,6 +66,10 @@ function quarterWeight(contract) {
   if (annual === null || annual <= 0) return null;
   const activeDays = daysOverlap(contract.start_date, contract.end_date);
   return round(annual * activeDays / 365.25, 3);
+}
+
+function hasPrecipitationMeasurement(row) {
+  return num(row.precipitation_mm) !== null || String(row.precipitation_type || "").trim() !== "";
 }
 
 function precipitationEvent(row) {
@@ -82,6 +92,8 @@ function summarizeRows(rows, sinceMs) {
     return {
       count: 0, score: null, precipShare: null, snowShare: null, highWindShare: null,
       freezeShare: null, heatShare: null, avgAirTemp: null, avgRoadTemp: null, avgWind: null,
+      metricCoveragePct: { precipitation: 0, wind: 0, airTemperature: 0, roadTemperature: 0 },
+      minimumMetricCoveragePct: 0,
     };
   }
 
@@ -90,13 +102,17 @@ function summarizeRows(rows, sinceMs) {
   let highWind = 0;
   let freeze = 0;
   let heat = 0;
+  let precipMeasured = 0;
   const air = [];
   const road = [];
   const wind = [];
 
   for (const row of filtered) {
-    if (precipitationEvent(row)) precip += 1;
-    if (snowEvent(row)) snow += 1;
+    if (hasPrecipitationMeasurement(row)) {
+      precipMeasured += 1;
+      if (precipitationEvent(row)) precip += 1;
+      if (snowEvent(row)) snow += 1;
+    }
     const windValue = num(row.wind_ms);
     const airValue = num(row.air_temp_c);
     const roadValue = num(row.road_temp_c);
@@ -115,13 +131,37 @@ function summarizeRows(rows, sinceMs) {
   }
 
   const n = filtered.length;
-  const precipShare = precip / n;
-  const snowShare = snow / n;
-  const highWindShare = highWind / n;
-  const freezeShare = road.length ? freeze / road.length : 0;
-  const heatShare = air.length ? heat / air.length : 0;
-  const score = n >= 6
-    ? clamp(100 - 45 * precipShare - 20 * highWindShare - 20 * snowShare - 12 * freezeShare - 8 * heatShare, 0, 100)
+  const precipShare = precipMeasured ? precip / precipMeasured : null;
+  const snowShare = precipMeasured ? snow / precipMeasured : null;
+  const highWindShare = wind.length ? highWind / wind.length : null;
+  const freezeShare = road.length ? freeze / road.length : null;
+  const heatShare = air.length ? heat / air.length : null;
+  const metricCoveragePct = {
+    precipitation: round(100 * precipMeasured / n, 1),
+    wind: round(100 * wind.length / n, 1),
+    airTemperature: round(100 * air.length / n, 1),
+    roadTemperature: round(100 * road.length / n, 1),
+  };
+  const minimumMetricCoveragePct = Math.min(
+    metricCoveragePct.precipitation,
+    metricCoveragePct.wind,
+    metricCoveragePct.airTemperature,
+  );
+  const minCoverage = TRACKER_CONFIG.weatherQuality.minMetricCoveragePct;
+  const criticalMetricsReady = minimumMetricCoveragePct >= minCoverage;
+  const enoughRows = n >= 6;
+
+  const score = enoughRows && criticalMetricsReady
+    ? clamp(
+      100
+        - 45 * (precipShare ?? 0)
+        - 20 * (highWindShare ?? 0)
+        - 20 * (snowShare ?? 0)
+        - 12 * (freezeShare ?? 0)
+        - 8 * (heatShare ?? 0),
+      0,
+      100,
+    )
     : null;
   const avg = (values) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
 
@@ -136,6 +176,8 @@ function summarizeRows(rows, sinceMs) {
     avgAirTemp: round(avg(air), 1),
     avgRoadTemp: round(avg(road), 1),
     avgWind: round(avg(wind), 1),
+    metricCoveragePct,
+    minimumMetricCoveragePct,
   };
 }
 
@@ -174,15 +216,16 @@ function combineStationSummaries(entries) {
     avgAirTemp: null,
     avgRoadTemp: null,
     avgWind: null,
+    minimumMetricCoveragePct: 0,
   };
 
-  const fields = ["score", "precipShare", "snowShare", "highWindShare", "freezeShare", "heatShare", "avgAirTemp", "avgRoadTemp", "avgWind"];
+  const fields = ["score", "precipShare", "snowShare", "highWindShare", "freezeShare", "heatShare", "avgAirTemp", "avgRoadTemp", "avgWind", "minimumMetricCoveragePct"];
   const result = { count, stationCount: usable.length };
   for (const field of fields) {
     const available = usable.filter((entry) => Number.isFinite(entry.summary?.[field]));
     const totalWeight = available.reduce((sum, entry) => sum + stationWeight(entry.link), 0);
     result[field] = totalWeight
-      ? round(available.reduce((sum, entry) => sum + entry.summary[field] * stationWeight(entry.link), 0) / totalWeight, field.includes("Share") ? 3 : 1)
+      ? round(available.reduce((sum, entry) => sum + entry.summary[field] * stationWeight(entry.link), 0) / totalWeight, field.includes("Share") || field.includes("Coverage") ? 1 : 1)
       : null;
   }
   return result;
@@ -193,16 +236,19 @@ function confidenceFor(vvis24, vvis7, smhi24, smhi7) {
   const count7 = Math.max(vvis7?.count || 0, smhi7?.count || 0);
   const coverage24 = clamp(count24 / 18, 0, 1);
   const coverage7 = clamp(count7 / 108, 0, 1);
+  const metricCoverage24 = Math.max(Number(vvis24?.minimumMetricCoveragePct || 0), Number(smhi24?.minimumMetricCoveragePct || 0));
+  const metricCoverage7 = Math.max(Number(vvis7?.minimumMetricCoveragePct || 0), Number(smhi7?.minimumMetricCoveragePct || 0));
+  const metricQualityFactor = clamp((0.7 * metricCoverage24 + 0.3 * metricCoverage7) / 100, 0, 1);
   const sourceFactor = (vvis24?.count || vvis7?.count) ? 1 : 0.75;
   const stationFactor = vvis24?.stationCount
     ? 0.85 + 0.15 * Math.min(vvis24.stationCount / 3, 1)
     : smhi24?.stationCount ? 0.80 + 0.20 * Math.min(smhi24.stationCount / 2, 1) : 0.7;
-  const score = Math.round(100 * (0.7 * coverage24 + 0.3 * coverage7) * sourceFactor * stationFactor);
+  const score = Math.round(100 * (0.7 * coverage24 + 0.3 * coverage7) * sourceFactor * stationFactor * metricQualityFactor);
   let label = "warming_up";
-  if (count24 >= 18 && count7 >= 108 && score >= 85) label = "high";
-  else if (count24 >= 12 && count7 >= 48) label = "medium";
-  else if (count24 >= 6) label = "low";
-  return { score, label, count24, count7 };
+  if (count24 >= 18 && count7 >= 108 && metricCoverage24 >= 85 && metricCoverage7 >= 85 && score >= 80) label = "high";
+  else if (count24 >= 12 && count7 >= 48 && metricCoverage24 >= 70) label = "medium";
+  else if (count24 >= 6 && metricCoverage24 >= 70) label = "low";
+  return { score, label, count24, count7, metricCoverage24, metricCoverage7 };
 }
 
 function signalFromScore(score) {
@@ -223,9 +269,9 @@ async function getContractLinks(db) {
       ON l.contract_id=c.id AND l.active=1 AND l.source IN ('VVIS','SMHI')
       AND ((l.source='VVIS' AND l.rank_no<=3) OR (l.source='SMHI' AND l.rank_no<=2))
     WHERE c.country='Sweden'
-      AND (c.start_date IS NULL OR c.start_date <= '2026-09-30')
-      AND (c.end_date IS NULL OR c.end_date >= '2026-07-01')
-    ORDER BY c.name, l.source, l.rank_no`).all();
+      AND (c.start_date IS NULL OR c.start_date <= ?)
+      AND (c.end_date IS NULL OR c.end_date >= ?)
+    ORDER BY c.name, l.source, l.rank_no`).bind(QUARTER_END, QUARTER_START).all();
 
   const map = new Map();
   for (const row of result?.results || []) {
@@ -300,6 +346,10 @@ async function buildContractRow(db, contract, nowMs) {
     signal: signalFromScore(score24),
     confidence: confidence.score,
     confidence_label: confidence.label,
+    data_quality: {
+      metric_coverage_24h_pct: confidence.metricCoverage24,
+      metric_coverage_7d_pct: confidence.metricCoverage7,
+    },
     primary_source: contract.links.VVIS.length ? "VVIS" : contract.links.SMHI.length ? "SMHI" : null,
     primary_station: primaryStation,
     geography: {
@@ -354,7 +404,7 @@ async function saveSnapshots(db, rows, generatedAt) {
       row.q3_weight_msek,
       row.primary_source,
       row.primary_station?.station_id || null,
-      JSON.stringify({ geography: row.geography, sources: row.sources }),
+      JSON.stringify({ geography: row.geography, data_quality: row.data_quality, sources: row.sources }),
     ));
   if (statements.length) await db.batch(statements);
 }
@@ -381,8 +431,9 @@ export async function calculateWorkability(db, { persist = true } = {}) {
   return {
     generated_at: generatedAt,
     quarter: TARGET_QUARTER,
-    methodology: "Absolutt sommerscore for arbeidsforhold. Flere målestasjoner brukes per kontrakt; veivær teller 75 % og vanlige værdata 25 % når begge finnes.",
+    methodology: "Absolutt sommerscore for arbeidsforhold. Flere målestasjoner brukes per kontrakt; veivær teller 75 % og vanlige værdata 25 % når begge finnes. Manglende måleverdier regnes ikke som godt vær, og kritiske parametre må ha minst 70 % dekning før en score beregnes.",
     geography_version: "0.2",
+    quality_version: "2.0",
     sweden: {
       score_24h: score24,
       score_7d: score7,

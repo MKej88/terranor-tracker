@@ -1,8 +1,15 @@
-const Q3_START = Date.UTC(2026, 6, 1, 0, 0, 0);
-const Q3_END = Date.UTC(2026, 8, 30, 23, 59, 59);
-const Q3_DAYS = 92;
+import {
+  QUARTER_END,
+  QUARTER_END_MS,
+  QUARTER_START,
+  QUARTER_START_MS,
+  TARGET_QUARTER,
+} from "./config.js";
+
+const QUARTER_DAYS = Math.floor((QUARTER_END_MS - QUARTER_START_MS) / 86400000) + 1;
 
 function num(value) {
+  if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -14,11 +21,11 @@ function round(value, digits = 2) {
 }
 
 function overlapDays(startText, endText) {
-  const start = startText ? Date.parse(`${startText}T00:00:00Z`) : Q3_START;
-  const end = endText ? Date.parse(`${endText}T23:59:59Z`) : Q3_END;
+  const start = startText ? Date.parse(`${startText}T00:00:00Z`) : QUARTER_START_MS;
+  const end = endText ? Date.parse(`${endText}T23:59:59Z`) : QUARTER_END_MS;
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
-  const a = Math.max(start, Q3_START);
-  const b = Math.min(end, Q3_END);
+  const a = Math.max(start, QUARTER_START_MS);
+  const b = Math.min(end, QUARTER_END_MS);
   if (b < a) return 0;
   return Math.floor((b - a) / 86400000) + 1;
 }
@@ -27,7 +34,9 @@ function classify(contract) {
   const type = String(contract.contract_type || "").toLowerCase();
   const start = contract.start_date ? Date.parse(`${contract.start_date}T00:00:00Z`) : null;
   const renewal = type.includes("renewal");
-  if (Number.isFinite(start) && start >= Q3_START && start <= Q3_END) return renewal ? "q3_renewal_start" : "q3_new_start";
+  if (Number.isFinite(start) && start >= QUARTER_START_MS && start <= QUARTER_END_MS) {
+    return renewal ? "q3_renewal_start" : "q3_new_start";
+  }
   if (renewal) return "carryover_renewal";
   return "carryover";
 }
@@ -37,9 +46,9 @@ export async function getContractBridge(db) {
   const result = await db.prepare(`SELECT id, country, name, customer, contract_type, start_date, end_date,
       total_value_msek, annual_run_rate_msek, confidence
     FROM contracts
-    WHERE (start_date IS NULL OR start_date <= '2026-09-30')
-      AND (end_date IS NULL OR end_date >= '2026-07-01')
-    ORDER BY country, start_date, name`).all();
+    WHERE (start_date IS NULL OR start_date <= ?)
+      AND (end_date IS NULL OR end_date >= ?)
+    ORDER BY country, start_date, name`).bind(QUARTER_END, QUARTER_START).all();
 
   const rows = (result?.results || []).map((contract) => {
     const annual = num(contract.annual_run_rate_msek);
@@ -55,7 +64,7 @@ export async function getContractBridge(db) {
       end_date: contract.end_date,
       category: classify(contract),
       active_days_q3: days,
-      active_share_q3: round(days / Q3_DAYS, 3),
+      active_share_q3: round(days / QUARTER_DAYS, 3),
       annual_run_rate_msek: annual,
       gross_q3_run_rate_msek: round(grossQ3, 2),
       confidence: contract.confidence,
@@ -76,8 +85,8 @@ export async function getContractBridge(db) {
     .reduce((sum, r) => sum + r.gross_q3_run_rate_msek, 0);
 
   return {
-    quarter: "Q3 2026",
-    methodology: "annual run-rate prorated by active calendar days in Q3",
+    quarter: TARGET_QUARTER,
+    methodology: "annual run-rate prorated by active calendar days in target quarter",
     warning: "Gross contract run-rate bridge only. It is not a net YoY revenue uplift: renewals can replace existing revenue, contract seasonality is not linear, and extra works are excluded.",
     summary: {
       active_contracts: rows.length,

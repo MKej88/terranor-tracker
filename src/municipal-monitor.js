@@ -1,6 +1,6 @@
 import { ensureActivitySchema } from "./activity.js";
 
-const USER_AGENT = "Terranor-Tracker/0.8 (+private-investor-research)";
+const USER_AGENT = "Terranor-Tracker/2.0 (+private-investor-research)";
 
 const SOURCES = [
   {
@@ -223,7 +223,6 @@ function extractLinks(html, source) {
 
 function classify(text, source) {
   const raw = String(text || "");
-  const value = normalize(raw);
   const hasTerranor = /\bterranor\b/i.test(raw);
 
   if (hasTerranor && /(vite|avvik|sanktion|brist|uppfolj|uppfölj|kontroll|revision)/i.test(raw)) {
@@ -270,22 +269,39 @@ async function ensureSchema(db) {
   await db.batch(SCHEMA.map((sql) => db.prepare(sql)));
 }
 
+const GENERIC_CONTRACT_TOKENS = new Set([
+  "omrade", "municipality", "kommun", "stad", "drift", "underhall", "underhåll",
+  "road", "maintenance", "state", "municipal", "outdoor", "renewal", "och", "for", "the",
+]);
+
 async function findContract(db, source, text) {
   if (!source.customerPattern) return null;
   const result = await db.prepare(`SELECT id, name, customer FROM contracts WHERE country='Sweden' AND customer LIKE ? ORDER BY LENGTH(name) DESC`)
     .bind(source.customerPattern).all();
   const rows = result?.results || [];
   if (!rows.length) return null;
-  if (rows.length === 1) return Number(rows[0].id);
+
   const haystack = normalize(text);
+  const municipalityTokens = new Set(normalize(source.municipality).split(" ").filter(Boolean));
   let best = null;
   for (const row of rows) {
-    const tokens = normalize(row.name).split(" ").filter((token) => token.length >= 2 && !["omrade","område","municipality","kommun","drift","underhall","underhåll"].includes(token));
+    const customerTokens = new Set(normalize(row.customer).split(" ").filter(Boolean));
+    const tokens = normalize(row.name).split(" ").filter((token) =>
+      token.length >= 3
+      && !GENERIC_CONTRACT_TOKENS.has(token)
+      && !municipalityTokens.has(token)
+      && !customerTokens.has(token));
+
+    // Never link merely because the municipality has one known Terranor contract.
+    // At least one contract-distinctive term must be present in the source text.
+    if (!tokens.length) continue;
     const hits = tokens.filter((token) => haystack.includes(token)).length;
-    const score = tokens.length ? hits / tokens.length : 0;
-    if (!best || score > best.score) best = { id: Number(row.id), score };
+    const score = hits / tokens.length;
+    if (hits >= 1 && (!best || score > best.score || (score === best.score && hits > best.hits))) {
+      best = { id: Number(row.id), score, hits };
+    }
   }
-  return best?.score >= 0.35 ? best.id : null;
+  return best && best.score >= 0.5 ? best.id : null;
 }
 
 async function alreadyCandidate(db, url) {
@@ -309,9 +325,18 @@ async function saveCandidate(db, source, item, fullText, classification) {
   return true;
 }
 
+function seenKey(sourceKey, url) {
+  return `${sourceKey}|${url}`.slice(0, 900);
+}
+
+async function getSeen(db, sourceKey, url) {
+  return db.prepare(`SELECT item_key, content_hash FROM municipal_seen_items WHERE item_key=?`)
+    .bind(seenKey(sourceKey, url)).first();
+}
+
 async function touchSeen(db, sourceKey, item, hash = null) {
-  const key = `${sourceKey}|${item.url}`.slice(0, 900);
-  const existing = await db.prepare(`SELECT item_key, content_hash FROM municipal_seen_items WHERE item_key=?`).bind(key).first();
+  const key = seenKey(sourceKey, item.url);
+  const existing = await getSeen(db, sourceKey, item.url);
   await db.prepare(`INSERT INTO municipal_seen_items (item_key, source_key, item_url, title, content_hash, last_seen_at, updated_at)
       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       ON CONFLICT(item_key) DO UPDATE SET title=excluded.title, content_hash=COALESCE(excluded.content_hash, municipal_seen_items.content_hash),
@@ -340,16 +365,28 @@ async function updateSourceState(db, source, fields) {
 async function inspectLinkedItem(db, source, link, firstSourceRun) {
   const isPdf = /\.pdf(?:$|[?#])/i.test(link.url);
   if (isPdf) {
+    if (await getSeen(db, source.key, link.url)) {
+      await touchSeen(db, source.key, link);
+      return { candidate: false, inspected: false, retry: false };
+    }
     const classification = classify(`${link.title} ${link.context}`, source);
     await touchSeen(db, source.key, link);
-    if (firstSourceRun || classification.relevance < 55) return { candidate: false, inspected: false };
-    const candidate = await saveCandidate(db, source, { ...link, published_at: extractPublishedAt(link.context) }, `${link.title}. ${link.context}`, classification);
-    return { candidate, inspected: false };
+    if (firstSourceRun || classification.relevance < 55) return { candidate: false, inspected: false, retry: false };
+    const candidate = await saveCandidate(
+      db,
+      source,
+      { ...link, published_at: extractPublishedAt(link.context) },
+      `${link.title}. ${link.context}. PDF-innholdet er ikke lest; vurderingen bygger på lenketittel og kontekst.`,
+      classification,
+    );
+    return { candidate, inspected: false, retry: false };
   }
 
-  const seen = await touchSeen(db, source.key, link);
-  if (seen && firstSourceRun) return { candidate: false, inspected: false };
-  if (seen && !firstSourceRun) return { candidate: false, inspected: false };
+  const seen = await getSeen(db, source.key, link.url);
+  if (seen) {
+    await touchSeen(db, source.key, link);
+    return { candidate: false, inspected: false, retry: false };
+  }
 
   try {
     const page = await fetchPage(link.url);
@@ -358,17 +395,16 @@ async function inspectLinkedItem(db, source, link, firstSourceRun) {
     const text = `${title} ${body}`;
     const classification = classify(text, source);
     const hash = await sha256(text);
+    // Only mark a HTML item as processed after its content was fetched successfully.
     await touchSeen(db, source.key, { ...link, title }, hash);
-    if (firstSourceRun || classification.relevance < 55) return { candidate: false, inspected: true };
+    if (firstSourceRun || classification.relevance < 55) return { candidate: false, inspected: true, retry: false };
     const candidate = await saveCandidate(db, source, {
       ...link, title, published_at: extractPublishedAt(text),
     }, text, classification);
-    return { candidate, inspected: true };
+    return { candidate, inspected: true, retry: false };
   } catch {
-    const classification = classify(`${link.title} ${link.context}`, source);
-    if (firstSourceRun || classification.relevance < 60) return { candidate: false, inspected: false };
-    const candidate = await saveCandidate(db, source, { ...link, published_at: extractPublishedAt(link.context) }, `${link.title}. ${link.context}`, classification);
-    return { candidate, inspected: false };
+    // Leave the item unseen so a transient municipal server error is retried on the next run.
+    return { candidate: false, inspected: false, retry: true };
   }
 }
 
@@ -377,12 +413,14 @@ async function runListingSource(db, source, page, priorState) {
   const firstSourceRun = !priorState?.last_checked_at;
   let candidates = 0;
   let inspected = 0;
+  let retries = 0;
   for (const link of links) {
     const result = await inspectLinkedItem(db, source, link, firstSourceRun);
     if (result.candidate) candidates += 1;
     if (result.inspected) inspected += 1;
+    if (result.retry) retries += 1;
   }
-  return { links: links.length, candidates, inspected, firstSourceRun };
+  return { links: links.length, candidates, inspected, retries, firstSourceRun };
 }
 
 function eavropRelevantLinks(html, source) {
@@ -395,9 +433,9 @@ async function runEavropAwards(db, source, page, priorState) {
   const firstSourceRun = !priorState?.last_checked_at;
   let candidates = 0;
   let inspected = 0;
+  let retries = 0;
   for (const link of links) {
-    const key = `${source.key}|${link.url}`.slice(0, 900);
-    const seen = await db.prepare(`SELECT item_key FROM municipal_seen_items WHERE item_key=?`).bind(key).first();
+    const seen = await getSeen(db, source.key, link.url);
     if (seen) {
       await touchSeen(db, source.key, link);
       continue;
@@ -412,16 +450,17 @@ async function runEavropAwards(db, source, page, priorState) {
       await touchSeen(db, source.key, { ...link, title }, hash);
       if (!/\bTerranor AB\b/i.test(text)) continue;
       const classification = classify(text, source);
-      // For the first import we deliberately keep exact Terranor hits. They can reveal recent awards not yet in the tracker.
+      // Exact Terranor hits are kept even on the first import, because they can reveal recent awards.
       const candidate = await saveCandidate(db, source, {
         ...link, title, published_at: extractPublishedAt(text),
       }, text, classification);
       if (candidate) candidates += 1;
     } catch {
-      await touchSeen(db, source.key, link);
+      // Do not mark a failed detail page as seen; retry next time.
+      retries += 1;
     }
   }
-  return { links: links.length, candidates, inspected, firstSourceRun };
+  return { links: links.length, candidates, inspected, retries, firstSourceRun };
 }
 
 async function runContractPage(db, source, page, priorState) {
@@ -444,7 +483,7 @@ async function runContractPage(db, source, page, priorState) {
       : classification);
     if (candidate) candidates += 1;
   }
-  return { hash, changed, candidates, inspected: 1, firstSourceRun };
+  return { hash, changed, candidates, inspected: 1, retries: 0, firstSourceRun };
 }
 
 export async function runMunicipalMonitor(db, options = {}) {
@@ -477,12 +516,13 @@ export async function runMunicipalMonitor(db, options = {}) {
         hash: source.mode === "contract_page" ? result.hash : pageHash,
         checkedAt: new Date().toISOString(),
         changedAt: changed ? new Date().toISOString() : null,
-        status: "ok",
+        status: result.retries ? "partial" : "ok",
+        error: result.retries ? `${result.retries} detaljside(r) kunne ikke hentes og prøves igjen` : null,
       });
       completed += 1;
       itemsSeen += Number(result.links || result.inspected || 0);
       candidatesWritten += Number(result.candidates || 0);
-      details.push({ source: source.key, name: source.name, changed, ...result, status: "ok" });
+      details.push({ source: source.key, name: source.name, changed, ...result, status: result.retries ? "partial" : "ok" });
     } catch (error) {
       const message = String(error?.message || error);
       errors.push(`${source.key}: ${message}`);
@@ -494,7 +534,8 @@ export async function runMunicipalMonitor(db, options = {}) {
   }
 
   const finishedAt = new Date().toISOString();
-  const status = completed === SOURCES.length ? "ok" : completed > 0 ? "partial" : "error";
+  const hasPartial = details.some((row) => row.status === "partial");
+  const status = completed === 0 ? "error" : completed === SOURCES.length && !hasPartial ? "ok" : "partial";
   if (run?.id) {
     await db.prepare(`UPDATE municipal_monitor_runs SET finished_at=?, status=?, sources_completed=?, items_seen=?,
       candidates_written=?, error_text=? WHERE id=?`)
@@ -514,7 +555,7 @@ export async function runMunicipalMonitor(db, options = {}) {
     candidatesWritten,
     details,
     errors,
-    note: "Kommunale funn blir kandidater for vurdering og påvirker ikke resultatestimatet automatisk. Første kjøring av kommunale møtekilder etablerer en grunnlinje for å unngå historisk støy; eksakte Terranor-treff i e-Avrops tildelingsfeed beholdes også ved første import.",
+    note: "Kommunale funn blir kandidater for vurdering og påvirker ikke resultatestimatet automatisk. Kontraktskobling krever kontraktsspesifikke teksttreff, og detaljsider som feiler blir ikke markert som behandlet, men prøves igjen ved neste kjøring.",
   };
 }
 
@@ -566,6 +607,8 @@ export async function getMunicipalStatus(db) {
       "Kommunale møtesider og anslagstavler overvåkes for nye relevante dokumenter og saker.",
       "Eksisterende Terranor-relaterte kontrakts- og driftsider overvåkes for innholdsendringer.",
       "e-Avrops offentlige tildelingsfeed brukes som tilleggskilde; bare detaljer med eksplisitt Terranor-treff registreres.",
+      "Kontraktskobling krever tekstlige treff som skiller kontrakten fra kommunen generelt.",
+      "Detaljsider som feiler ved henting blir stående for automatisk retry.",
       "Ingen kommunale funn bokføres automatisk som omsetning eller EBITA.",
     ],
   };

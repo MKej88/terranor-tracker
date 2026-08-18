@@ -1,5 +1,12 @@
-const CACHE_KEY = "terranor:fase-c:fast:v1";
+const CACHE_KEY = "terranor:fase-c:fast:v2";
 const CACHE_TTL_MS = 10 * 60 * 1000;
+
+const escapeHtml = (value) => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#039;");
 
 const formatNumber = (value) => {
   const n = Number(value);
@@ -34,12 +41,15 @@ const confidenceName = (value) => ({
   "regional-proxy": "regional proxy",
 }[value] || String(value || "—").replaceAll("_", " "));
 
-async function getJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, { cache: "no-store", ...options });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.error || `${url}: ${response.status}`);
   return data;
 }
+
+const getJson = (url) => requestJson(url);
+const postJson = (url) => requestJson(url, { method: "POST" });
 
 function sourceStatusRows(source) {
   const run = source?.lastRun;
@@ -57,7 +67,7 @@ function renderBackfill(backfill) {
   const pct = Math.max(0, Math.min(100, Number(backfill?.progressPct || 0)));
   document.querySelector("#backfill-progress").style.width = `${pct}%`;
   document.querySelector("#backfill-detail").textContent = backfill?.targets
-    ? `${backfill.targetsComplete} av ${backfill.targets} værankere har minst ${backfill.days} dager med historikk. Samlet fremdrift er ${pct} %. Historikken fylles automatisk bakover hver time.`
+    ? `${backfill.targetsComplete} av ${backfill.targets} værankere oppfyller kvalitetskravet for ${backfill.days} dager. Samlet fremdrift er ${pct} %. Historikken fylles automatisk bakover hver time.`
     : "Venter på at værankrene skal bli koblet til målestasjoner.";
   const pill = document.querySelector("#backfill-pill");
   pill.classList.remove("ok");
@@ -71,12 +81,12 @@ function renderBackfill(backfill) {
   const sourceRows = ["DMI", "FMI"].map((source) => {
     const rows = (backfill?.targetStatus || []).filter((x) => x.source === source);
     const done = rows.filter((x) => x.complete).length;
-    const avg = rows.length ? Math.round(rows.reduce((sum, x) => sum + Number(x.covered_days || 0), 0) / rows.length) : 0;
-    return `<div class="status-row"><span>${sourceName(source)}</span><b>${done}/${rows.length} ferdige · ca. ${avg} dager i snitt</b></div>`;
+    const avg = rows.length ? Math.round(rows.reduce((sum, x) => sum + Number(x.minimum_core_coverage_pct || 0), 0) / rows.length) : 0;
+    return `<div class="status-row"><span>${sourceName(source)}</span><b>${done}/${rows.length} ferdige · ca. ${avg} % kjerneparameterdekning</b></div>`;
   });
   const latest = backfill?.latestRun;
   if (latest) {
-    sourceRows.push(`<div class="status-row"><span>Siste historikkjobb</span><b>${latest.label || "—"} · ${latest.status === "ok" ? "OK" : "feil"} · ${formatNumber(latest.observations_written || 0)} målinger</b></div>`);
+    sourceRows.push(`<div class="status-row"><span>Siste historikkjobb</span><b>${escapeHtml(latest.label || "—")} · ${latest.status === "ok" ? "OK" : "feil"} · ${formatNumber(latest.observations_written || 0)} målinger</b></div>`);
   }
   document.querySelector("#backfill-list").innerHTML = sourceRows.join("");
 }
@@ -104,22 +114,22 @@ function render(status, backfill, generatedAt = null, cached = false) {
   const targets = status?.targets || [];
   document.querySelector("#target-body").innerHTML = targets.length ? targets.map((row) => `
     <tr>
-      <td>${countryName(row.country)}</td>
-      <td><b>${row.label || "—"}</b><br><span class="table-subtext">${row.location_name || ""}</span></td>
-      <td>${row.matched_contract || row.contract_name || "ikke koblet"}</td>
-      <td>${sourceName(row.source)}</td>
-      <td>${row.station_name || row.station_id || "venter på første kjøring"}</td>
+      <td>${escapeHtml(countryName(row.country))}</td>
+      <td><b>${escapeHtml(row.label || "—")}</b><br><span class="table-subtext">${escapeHtml(row.location_name || "")}</span></td>
+      <td>${escapeHtml(row.matched_contract || row.contract_name || "ikke koblet")}</td>
+      <td>${escapeHtml(sourceName(row.source))}</td>
+      <td>${escapeHtml(row.station_name || row.station_id || "venter på første kjøring")}</td>
       <td>${Number.isFinite(Number(row.distance_km)) ? `${Number(row.distance_km).toFixed(1)} km` : "—"}</td>
-      <td>${confidenceName(row.confidence)}</td>
+      <td>${escapeHtml(confidenceName(row.confidence))}</td>
     </tr>`).join("") : `<tr><td colspan="7">Ingen værankere er registrert.</td></tr>`;
 
   document.querySelector("#method-list").innerHTML = Object.entries(status?.methodology || {}).map(([country, text]) => `
-    <div class="status-row"><span>${countryName(country)}</span><b>${text}</b></div>
+    <div class="status-row"><span>${escapeHtml(countryName(country))}</span><b>${escapeHtml(text)}</b></div>
   `).join("");
 
   const limitations = status?.limitations || [];
   document.querySelector("#limitation-list").innerHTML = limitations.length ? limitations.map((text) => `
-    <div class="problem-row"><div><b>Avgrensning</b><span>${text}</span></div></div>
+    <div class="problem-row"><div><b>Avgrensning</b><span>${escapeHtml(text)}</span></div></div>
   `).join("") : `<div class="empty-good"><b>Ingen kjente avgrensninger</b></div>`;
 
   renderBackfill(backfill);
@@ -154,9 +164,8 @@ function readCache() {
 }
 
 function writeCache(payload) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), payload }));
-  } catch {}
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), payload })); }
+  catch {}
 }
 
 async function load({ showCache = true } = {}) {
@@ -164,7 +173,6 @@ async function load({ showCache = true } = {}) {
     const cached = readCache();
     if (cached) render(cached.status, cached.backfill, cached.generatedAt, true);
   }
-
   try {
     const payload = await getJson("/api/fase-c/fast?days=60");
     writeCache(payload);
@@ -185,7 +193,7 @@ async function runCountry(country, button) {
   button.disabled = true;
   button.textContent = "Henter…";
   try {
-    const result = await getJson(`/api/nordic/run?country=${encodeURIComponent(country)}`);
+    const result = await postJson(`/api/nordic/run?country=${encodeURIComponent(country)}`);
     const source = country === "Denmark" ? result?.sources?.DMI : result?.sources?.FMI;
     const failed = (source?.details || []).filter((x) => x.status === "feil");
     button.textContent = failed.length ? `${failed.length} feil – se status` : "Ferdig";
@@ -203,7 +211,7 @@ async function runBackfill(button) {
   button.disabled = true;
   button.textContent = "Fyller historikk…";
   try {
-    const result = await getJson("/api/nordic/backfill/run?days=60&tasks=2");
+    const result = await postJson("/api/nordic/backfill/run?days=60&tasks=2");
     const failed = (result?.details || []).filter((x) => x.status === "feil");
     button.textContent = failed.length ? `${failed.length} feil – se status` : result.tasksAttempted ? "Historikkbit ferdig" : "All historikk er ferdig";
     await load({ showCache: false });
