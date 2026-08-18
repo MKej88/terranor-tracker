@@ -68,7 +68,7 @@ function renderBackfill(backfill) {
   document.querySelector("#backfill-kpi-text").textContent = backfill?.complete ? "Alle primære SMHI-stasjoner er klare" : `${pct} % ferdig`;
   document.querySelector("#backfill-progress").style.width = `${Math.max(0, Math.min(100, pct))}%`;
   document.querySelector("#backfill-detail").textContent = total
-    ? `${done} av ${total} primære SMHI-stasjoner har nok målinger for de siste ${formatNumber(backfill?.days || 60)} dagene.`
+    ? `${done} av ${total} primære SMHI-stasjoner oppfyller kvalitetskravet for de siste ${formatNumber(backfill?.days || 60)} dagene.`
     : "Ingen primære SMHI-stasjoner er registrert ennå.";
   setPill("#backfill-pill", backfill?.complete ? "komplett" : `${pct} %`, Boolean(backfill?.complete));
 
@@ -78,7 +78,7 @@ function renderBackfill(backfill) {
       <tr>
         <td>${escapeHtml(row.station_name || row.station_id)}</td>
         <td>${formatNumber(row.observations)}</td>
-        <td><b class="${row.backfilled ? "text-good" : "text-warn"}">${row.backfilled ? "klar" : "fylles inn"}</b></td>
+        <td><b class="${row.backfilled ? "text-good" : "text-warn"}">${row.backfilled ? "klar" : `${formatNumber(row.minimumCoreCoveragePct || 0, 1)} % dekning`}</b></td>
       </tr>
     `).join("")
     : `<tr><td colspan="3">Ingen stasjonsstatus tilgjengelig.</td></tr>`;
@@ -89,13 +89,14 @@ function renderClimate(climate) {
   const ready = Number(climate?.stationsFullyReady || 0);
   const stations = Number(climate?.stations || 0);
   const errors = Number(climate?.errorTasks || 0);
+  const complete = Boolean(climate?.complete);
   document.querySelector("#climate-progress-kpi").textContent = `${formatNumber(pct)} %`;
-  document.querySelector("#climate-kpi-text").textContent = stations ? `${ready} / ${stations} stasjoner fullt klare` : "2016–2025 · Q3";
+  document.querySelector("#climate-kpi-text").textContent = stations ? `${ready} / ${stations} stasjoner kvalitetsklare` : "2016–2025 · Q3";
   document.querySelector("#climate-progress").style.width = `${Math.max(0, Math.min(100, pct))}%`;
   document.querySelector("#climate-detail").textContent = stations
-    ? `${formatNumber(climate?.finishedTasks)} av ${formatNumber(climate?.totalTasks)} stasjon/parameter-jobber er ferdige. ${ready} av ${stations} stasjoner har alle tre parametere klare.`
+    ? `${formatNumber(climate?.finishedTasks)} av ${formatNumber(climate?.totalTasks)} arkivjobber er ferdige. ${ready} av ${stations} stasjoner oppfyller 2.0-kravet til historiske år og dagdekning.`
     : "Venter på registrerte SMHI-stasjoner.";
-  setPill("#climate-pill", errors ? `${errors} feil` : pct >= 100 ? "komplett" : `${formatNumber(pct)} %`, pct >= 100 && errors === 0);
+  setPill("#climate-pill", errors ? `${errors} feil` : complete ? "kvalitetsklart" : `${formatNumber(pct)} % behandlet`, complete && errors === 0);
 
   const rows = climate?.stationStatus || [];
   document.querySelector("#climate-body").innerHTML = rows.length
@@ -193,8 +194,8 @@ function renderReadiness({ quality, backfill, climate, geography, comparison }) 
   const checks = [
     { label: "SMHI-data er ferske", ok: Boolean(quality?.checks?.smhi_recent) },
     { label: "Veivær fra Trafikverket er ferskt", ok: Boolean(quality?.checks?.vvis_recent) },
-    { label: "60-dagers SMHI-historikk er komplett", ok: Boolean(backfill?.complete) },
-    { label: "10-årsgrunnlaget er ferdig uten arkivfeil", ok: Number(climate?.progressPct || 0) >= 100 && Number(climate?.errorTasks || 0) === 0 },
+    { label: "60-dagers SMHI-historikk oppfyller 2.0-kvalitetskravet", ok: Boolean(backfill?.complete) },
+    { label: "10-årsgrunnlaget oppfyller 2.0-kvalitetskravet", ok: Boolean(climate?.complete) && Number(climate?.errorTasks || 0) === 0 },
     { label: "Gjennomsnittlig geografisk dekning er minst 85 %", ok: Number(geography?.averageCoveragePct || 0) >= 85 },
     { label: "Minst 90 % av økonomisk vekt har historisk sammenligning", ok: Number(comparison?.weightedCoveragePct || 0) >= 90 },
   ];
@@ -244,7 +245,7 @@ async function runAction(button, url, workingText) {
   button.disabled = true;
   button.textContent = workingText;
   try {
-    await getJson(url);
+    await getJson(url, { method: "POST" });
     await loadStatus();
   } catch (error) {
     console.error(error);
@@ -258,5 +259,4 @@ async function runAction(button, url, workingText) {
 document.querySelector("#refresh-button").addEventListener("click", loadStatus);
 document.querySelector("#run-backfill").addEventListener("click", (event) => runAction(event.currentTarget, "/api/backfill/smhi/run?days=60&stations=3", "Fyller historikk…"));
 document.querySelector("#run-climate").addEventListener("click", (event) => runAction(event.currentTarget, "/api/climate/full-run?tasks=60", "Fyller 10-årsgrunnlag…"));
-
 loadStatus();
