@@ -57,16 +57,17 @@ function clampInt(value, fallback, min, max) {
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
 }
 
-function round(value, digits = 2) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  const factor = 10 ** digits;
-  return Math.round(n * factor) / factor;
-}
-
 function numeric(value) {
+  if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function round(value, digits = 2) {
+  const n = numeric(value);
+  if (n === null) return null;
+  const factor = 10 ** digits;
+  return Math.round(n * factor) / factor;
 }
 
 function xmlDecode(value) {
@@ -101,6 +102,17 @@ async function seedTasks(db) {
   const years = Array.from({ length: BASELINE_END_YEAR - BASELINE_START_YEAR + 1 }, (_, i) => BASELINE_START_YEAR + i);
   const yearsSql = years.map((year) => `(${year})`).join(",");
   const monthsSql = Q3_MONTHS.map((month) => `(${month})`).join(",");
+
+  // Hvis live-kjeden bytter målestasjon, skal ikke eldre normaler fra den gamle
+  // stasjonen blandes med den nye. Oppgavene nullstilles i UPSERT-en under.
+  await db.prepare(`DELETE FROM nordic_climate_daily
+    WHERE EXISTS (
+      SELECT 1 FROM nordic_weather_targets t
+      WHERE t.id=nordic_climate_daily.target_id
+        AND t.station_id IS NOT NULL
+        AND t.station_id<>nordic_climate_daily.station_id
+    )`).run();
+
   await db.prepare(`WITH years(y) AS (VALUES ${yearsSql}), months(m) AS (VALUES ${monthsSql})
     INSERT INTO nordic_climate_tasks (target_id, country, source, station_id, station_name, year, month, status)
     SELECT t.id, t.country, t.source, t.station_id, t.station_name, years.y, months.m, 'pending'
@@ -112,6 +124,9 @@ async function seedTasks(db) {
       station_id=excluded.station_id,
       station_name=excluded.station_name,
       status=CASE WHEN nordic_climate_tasks.station_id<>excluded.station_id THEN 'pending' ELSE nordic_climate_tasks.status END,
+      observations_used=CASE WHEN nordic_climate_tasks.station_id<>excluded.station_id THEN 0 ELSE nordic_climate_tasks.observations_used END,
+      rows_written=CASE WHEN nordic_climate_tasks.station_id<>excluded.station_id THEN 0 ELSE nordic_climate_tasks.rows_written END,
+      error_text=CASE WHEN nordic_climate_tasks.station_id<>excluded.station_id THEN NULL ELSE nordic_climate_tasks.error_text END,
       updated_at=CASE WHEN nordic_climate_tasks.station_id<>excluded.station_id THEN CURRENT_TIMESTAMP ELSE nordic_climate_tasks.updated_at END`).run();
 }
 
@@ -183,7 +198,7 @@ function fmiField(member) {
   return null;
 }
 
-async function fetchFmiMonth(stationId, year, month) {
+async function fetchFmiMonth(stationId, locationName, year, month) {
   const { start, end } = isoRange(year, month);
   const query = new URLSearchParams({
     service: "WFS",
@@ -193,19 +208,24 @@ async function fetchFmiMonth(stationId, year, month) {
     starttime: start,
     endtime: end,
     parameters: "TA_PT1H_AVG,WS_PT1H_AVG,PRA_PT1H_ACC",
-    fmisid: String(stationId),
   });
+  const numericStationId = /^\d+$/.test(String(stationId || "")) ? String(stationId) : null;
+  if (numericStationId) query.set("fmisid", numericStationId);
+  else if (locationName) query.set("place", String(locationName));
+  else throw new Error(`FMI-mål ${stationId || "uten stasjon"} mangler både numerisk fmisid og stedsnavn`);
+
+  const selector = numericStationId ? `fmisid ${numericStationId}` : `place ${locationName}`;
   const response = await fetch(`${FMI_WFS_URL}?${query.toString()}`, {
     headers: { "user-agent": "Terranor-Tracker/1.4-paid", accept: "application/xml,text/xml" },
   });
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`FMI ${stationId} ${year}-${String(month).padStart(2, "0")} feilet: ${response.status} ${body.slice(0, 300)}`);
+    throw new Error(`FMI ${selector} ${year}-${String(month).padStart(2, "0")} feilet: ${response.status} ${body.slice(0, 300)}`);
   }
   const xml = await response.text();
   if (/ExceptionReport|ExceptionText/i.test(xml)) {
     const message = xml.match(/<[^>]*ExceptionText[^>]*>([\s\S]*?)<\/[^>]*ExceptionText>/i)?.[1];
-    throw new Error(`FMI ${stationId} svarte med feil: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
+    throw new Error(`FMI ${selector} svarte med feil: ${xmlDecode(message || "ukjent WFS-feil").trim()}`);
   }
 
   const hourlyByField = new Map(PARAMETERS.map((p) => [p.key, new Map()]));
@@ -229,7 +249,7 @@ async function fetchFmiMonth(stationId, year, month) {
 
   const rows = [];
   for (const parameter of PARAMETERS) rows.push(...dailyFromHourly(hourlyByField.get(parameter.key), parameter));
-  return { rows, observations };
+  return { rows, observations, selector };
 }
 
 async function saveDailyRows(db, task, rows) {
@@ -262,11 +282,15 @@ async function saveDailyRows(db, task, rows) {
 }
 
 async function nextTasks(db, limit, country = null) {
-  const whereCountry = country ? " AND country=?" : "";
-  const query = db.prepare(`SELECT id, target_id, country, source, station_id, station_name, year, month, status
-    FROM nordic_climate_tasks
-    WHERE status IN ('pending','error')${whereCountry}
-    ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, year DESC, month ASC, source, target_id
+  const whereCountry = country ? " AND c.country=?" : "";
+  const query = db.prepare(`SELECT c.id, c.target_id, c.country, c.source, c.station_id, c.station_name,
+      c.year, c.month, c.status, t.location_name
+    FROM nordic_climate_tasks c
+    JOIN nordic_weather_targets t ON t.id=c.target_id
+    WHERE c.status IN ('pending','error')${whereCountry}
+    ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END,
+      CASE c.month WHEN 8 THEN 0 WHEN 7 THEN 1 ELSE 2 END,
+      c.year DESC, c.source, c.target_id
     LIMIT ?`);
   const result = country ? await query.bind(country, limit).all() : await query.bind(limit).all();
   return result?.results || [];
@@ -295,7 +319,7 @@ export async function runNordicClimateArchive(db, options = {}) {
     try {
       const result = task.source === "DMI"
         ? await fetchDmiMonth(task.station_id, Number(task.year), Number(task.month))
-        : await fetchFmiMonth(task.station_id, Number(task.year), Number(task.month));
+        : await fetchFmiMonth(task.station_id, task.location_name, Number(task.year), Number(task.month));
       if (!result.rows.length) {
         await db.prepare(`UPDATE nordic_climate_tasks SET status='unavailable', observations_used=0, rows_written=0,
           last_finished_at=?, error_text='Ingen Q3-observasjoner for denne måneden', updated_at=CURRENT_TIMESTAMP WHERE id=?`)
@@ -395,7 +419,10 @@ export async function getNordicClimateStatus(db, options = {}) {
     months: Q3_MONTHS,
     tasksPerTarget: TASKS_PER_TARGET,
     countries,
-    complete: ["Denmark", "Finland"].every((country) => countries[country].remainingTasks === 0 && countries[country].errorTasks === 0),
+    complete: ["Denmark", "Finland"].every((country) => {
+      const row = countries[country];
+      return row.targets > 0 && row.linkedTargets === row.targets && row.remainingTasks === 0 && row.errorTasks === 0;
+    }),
     latestTask: latest || null,
     targetStatus: targetRows,
     note: "Dette er et 10-årig Q3-sammenligningsgrunnlag, ikke offisielle klimanormaler. Historikken bruker samme målestasjon som den løpende datakjeden; manglende eldre data blir synlig som ikke tilgjengelig i stedet for å bytte stasjon automatisk.",
@@ -430,13 +457,18 @@ async function targetComparison(db, target, days) {
     WHERE target_id=? AND substr(observed_date,6,5) IN (${placeholders})
     GROUP BY parameter_key`).bind(Number(target.target_id), ...monthDays).all();
   const baseline = Object.fromEntries((baselineResult?.results || []).map((row) => [row.parameter_key, {
-    avg: Number(row.avg_value), eventShare: Number(row.event_share), years: Number(row.years || 0),
+    avg: numeric(row.avg_value), eventShare: numeric(row.event_share), years: Number(row.years || 0),
   }]));
   const actual = Object.fromEntries(PARAMETERS.map((p) => [p.key, actualMetric(current, p.key, p.threshold)]));
-  const precipDelta = actual.precipitation_mm && baseline.precipitation_mm ? actual.precipitation_mm.eventShare - baseline.precipitation_mm.eventShare : null;
-  const windDelta = actual.wind_ms && baseline.wind_ms ? actual.wind_ms.eventShare - baseline.wind_ms.eventShare : null;
-  const heatDelta = actual.air_temp_c && baseline.air_temp_c ? actual.air_temp_c.eventShare - baseline.air_temp_c.eventShare : null;
-  const anomaly = [precipDelta, windDelta, heatDelta].every((x) => x !== null) ? -45 * precipDelta - 20 * windDelta - 8 * heatDelta : null;
+  const precipDelta = actual.precipitation_mm && baseline.precipitation_mm?.eventShare !== null
+    ? actual.precipitation_mm.eventShare - baseline.precipitation_mm.eventShare : null;
+  const windDelta = actual.wind_ms && baseline.wind_ms?.eventShare !== null
+    ? actual.wind_ms.eventShare - baseline.wind_ms.eventShare : null;
+  const heatDelta = actual.air_temp_c && baseline.air_temp_c?.eventShare !== null
+    ? actual.air_temp_c.eventShare - baseline.air_temp_c.eventShare : null;
+  const anomaly = [precipDelta, windDelta, heatDelta].every((x) => x !== null)
+    ? -45 * precipDelta - 20 * windDelta - 8 * heatDelta
+    : null;
   return {
     target_id: Number(target.target_id),
     country: target.country,
@@ -447,9 +479,9 @@ async function targetComparison(db, target, days) {
     station_id: String(target.station_id),
     station_name: target.station_name,
     confidence: target.confidence,
-    ready: Number.isFinite(anomaly),
+    ready: anomaly !== null,
     baseline_years: Math.max(baseline.air_temp_c?.years || 0, baseline.wind_ms?.years || 0, baseline.precipitation_mm?.years || 0),
-    air_temperature_delta_c: actual.air_temp_c && baseline.air_temp_c ? round(actual.air_temp_c.avg - baseline.air_temp_c.avg, 1) : null,
+    air_temperature_delta_c: actual.air_temp_c && baseline.air_temp_c?.avg !== null ? round(actual.air_temp_c.avg - baseline.air_temp_c.avg, 1) : null,
     precipitation_event_delta_pct: precipDelta === null ? null : round(100 * precipDelta, 1),
     high_wind_delta_pct: windDelta === null ? null : round(100 * windDelta, 1),
     workability_anomaly_points: round(anomaly, 1),
