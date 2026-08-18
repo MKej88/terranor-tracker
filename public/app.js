@@ -10,68 +10,92 @@ const STATUS_TEXT = {
   error: "feil",
 };
 
+const labels = {
+  trafficWeather: "Veivær fra Trafikverket",
+  smhi: "Vanlige svenske værstasjoner",
+  dmi: "Danske værdata",
+  fmi: "Finske værdata",
+  workability: "Værbaserte arbeidsforhold",
+  contracts: "Kontraktsoversikt",
+  forecastHistory: "Historikk for estimater",
+};
+
+const orderedKeys = ["contracts", "smhi", "trafficWeather", "workability", "forecastHistory", "dmi", "fmi"];
+
 const fmtStatus = (value) => {
   const raw = String(value || "planned");
   return STATUS_TEXT[raw] || raw.replaceAll("_", " ");
 };
 
-async function load() {
+async function getJson(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error || `${url}: ${response.status}`);
+  return data;
+}
+
+function renderLoadingRows() {
+  document.querySelector("#status-list").innerHTML = orderedKeys.map((key) => `
+    <div class="status-row">
+      <span>${labels[key]}</span>
+      <b>henter…</b>
+    </div>
+  `).join("");
+}
+
+function renderOverview(overview) {
+  const collection = overview?.dataCollection || {};
+  document.querySelector("#status-list").innerHTML = orderedKeys.map((key) => `
+    <div class="status-row">
+      <span>${labels[key]}</span>
+      <b>${fmtStatus(collection[key])}</b>
+    </div>
+  `).join("");
+}
+
+async function loadHealth() {
+  const pill = document.querySelector("#health-pill");
   try {
-    const [healthRes, statusRes, forecastRes, nordicRes] = await Promise.all([
-      fetch("/api/health"),
-      fetch("/api/status"),
-      fetch("/api/forecast"),
-      fetch("/api/nordic/status"),
-    ]);
-
-    const health = await healthRes.json();
-    const status = await statusRes.json();
-    const forecast = await forecastRes.json();
-    const nordic = nordicRes.ok ? await nordicRes.json() : null;
-
-    const pill = document.querySelector("#health-pill");
+    const health = await getJson("/api/health");
     pill.textContent = health.ok ? "Tjenesten er på nett" : "Feil i tjenesten";
-    if (health.ok) pill.classList.add("ok");
-
-    document.querySelector("#revenue").textContent = forecast.revenue.base
-      ? `SEK ${forecast.revenue.base} mill.`
-      : "—";
-    document.querySelector("#ebita").textContent = forecast.adjustedEbita.base
-      ? `SEK ${forecast.adjustedEbita.base} mill.`
-      : "—";
-    document.querySelector("#confidence").textContent = forecast.confidence ?? "—";
-
-    const labels = {
-      trafficWeather: "Veivær fra Trafikverket",
-      smhi: "Vanlige svenske værstasjoner",
-      dmi: "Danske værdata",
-      fmi: "Finske værdata",
-      workability: "Værbaserte arbeidsforhold",
-      contracts: "Kontraktsoversikt",
-      forecastHistory: "Historikk for estimater",
-    };
-
-    const collection = { ...(status.dataCollection || {}) };
-    if (nordic) {
-      collection.dmi = nordic?.sources?.DMI?.status === "ok" ? "active" : nordic?.sources?.DMI?.status === "error" ? "error" : "ready";
-      collection.fmi = nordic?.sources?.FMI?.status === "ok" ? "active" : nordic?.sources?.FMI?.status === "error" ? "error" : "ready";
-    }
-
-    const statusList = document.querySelector("#status-list");
-    statusList.innerHTML = Object.entries(collection)
-      .map(
-        ([key, value]) => `
-          <div class="status-row">
-            <span>${labels[key] || key}</span>
-            <b>${fmtStatus(value)}</b>
-          </div>`,
-      )
-      .join("");
+    pill.classList.toggle("ok", Boolean(health.ok));
   } catch (error) {
-    const pill = document.querySelector("#health-pill");
     pill.textContent = "Tilkoblingsfeil";
     console.error(error);
   }
+}
+
+async function loadForecast() {
+  try {
+    const forecast = await getJson("/api/forecast");
+    document.querySelector("#revenue").textContent = forecast?.revenue?.base
+      ? `SEK ${forecast.revenue.base} mill.`
+      : "—";
+    document.querySelector("#ebita").textContent = forecast?.adjustedEbita?.base
+      ? `SEK ${forecast.adjustedEbita.base} mill.`
+      : "—";
+    document.querySelector("#confidence").textContent = forecast?.confidence ?? "—";
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+async function loadOverview() {
+  try {
+    renderOverview(await getJson("/api/overview"));
+  } catch (error) {
+    document.querySelector("#status-list").innerHTML = `
+      <div class="status-row"><span>Datainnsamling</span><b>kunne ikke hentes</b></div>
+    `;
+    console.error(error);
+  }
+}
+
+function load() {
+  renderLoadingRows();
+  loadHealth();
+  loadForecast();
+  loadOverview();
 }
 
 load();
