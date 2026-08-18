@@ -1,3 +1,6 @@
+const CACHE_KEY = "terranor:fase-c:fast:v1";
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
 const formatNumber = (value) => {
   const n = Number(value);
   return Number.isFinite(n) ? new Intl.NumberFormat("nb-NO").format(n) : "—";
@@ -78,7 +81,7 @@ function renderBackfill(backfill) {
   document.querySelector("#backfill-list").innerHTML = sourceRows.join("");
 }
 
-function render(status, backfill) {
+function render(status, backfill, generatedAt = null, cached = false) {
   const denmark = status?.countries?.Denmark || {};
   const finland = status?.countries?.Finland || {};
   const dmi = status?.sources?.DMI || {};
@@ -132,19 +135,47 @@ function render(status, backfill) {
   } else {
     pill.textContent = "Klar for første test";
   }
-  document.querySelector("#updated-line").textContent = `Siden ble oppdatert ${formatTime(new Date().toISOString())}. Live-data og historikk fortsetter automatisk hver time.`;
+
+  const timestamp = generatedAt || new Date().toISOString();
+  document.querySelector("#updated-line").textContent = cached
+    ? `Viser nylig lagret status fra ${formatTime(timestamp)} · oppdaterer i bakgrunnen…`
+    : `Siden ble oppdatert ${formatTime(timestamp)}. Live-data og historikk fortsetter automatisk hver time.`;
 }
 
-async function load() {
+function readCache() {
   try {
-    const [status, backfill] = await Promise.all([
-      getJson("/api/nordic/status"),
-      getJson("/api/nordic/backfill/status"),
-    ]);
-    render(status, backfill);
+    const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+    if (!cached?.savedAt || Date.now() - cached.savedAt > CACHE_TTL_MS) return null;
+    if (!cached?.payload?.status || !cached?.payload?.backfill) return null;
+    return cached.payload;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(payload) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), payload }));
+  } catch {}
+}
+
+async function load({ showCache = true } = {}) {
+  if (showCache) {
+    const cached = readCache();
+    if (cached) render(cached.status, cached.backfill, cached.generatedAt, true);
+  }
+
+  try {
+    const payload = await getJson("/api/fase-c/fast?days=60");
+    writeCache(payload);
+    render(payload.status, payload.backfill, payload.generatedAt, false);
   } catch (error) {
-    document.querySelector("#phase-pill").textContent = "Kunne ikke hente status";
-    document.querySelector("#updated-line").textContent = `Feil: ${error.message}`;
+    if (!readCache()) {
+      document.querySelector("#phase-pill").textContent = "Kunne ikke hente status";
+      document.querySelector("#updated-line").textContent = `Feil: ${error.message}`;
+    } else {
+      document.querySelector("#updated-line").textContent = `Viser sist lagrede status. Ny oppdatering feilet: ${error.message}`;
+    }
     console.error(error);
   }
 }
@@ -158,7 +189,7 @@ async function runCountry(country, button) {
     const source = country === "Denmark" ? result?.sources?.DMI : result?.sources?.FMI;
     const failed = (source?.details || []).filter((x) => x.status === "feil");
     button.textContent = failed.length ? `${failed.length} feil – se status` : "Ferdig";
-    await load();
+    await load({ showCache: false });
   } catch (error) {
     button.textContent = "Feil – prøv igjen";
     document.querySelector("#updated-line").textContent = `Innhenting feilet: ${error.message}`;
@@ -175,7 +206,7 @@ async function runBackfill(button) {
     const result = await getJson("/api/nordic/backfill/run?days=60&tasks=2");
     const failed = (result?.details || []).filter((x) => x.status === "feil");
     button.textContent = failed.length ? `${failed.length} feil – se status` : result.tasksAttempted ? "Historikkbit ferdig" : "All historikk er ferdig";
-    await load();
+    await load({ showCache: false });
   } catch (error) {
     button.textContent = "Feil – prøv igjen";
     document.querySelector("#updated-line").textContent = `Historikkinnlasting feilet: ${error.message}`;
@@ -187,5 +218,5 @@ async function runBackfill(button) {
 document.querySelector("#run-denmark").addEventListener("click", (event) => runCountry("Denmark", event.currentTarget));
 document.querySelector("#run-finland").addEventListener("click", (event) => runCountry("Finland", event.currentTarget));
 document.querySelector("#run-backfill").addEventListener("click", (event) => runBackfill(event.currentTarget));
-document.querySelector("#refresh-button").addEventListener("click", load);
+document.querySelector("#refresh-button").addEventListener("click", () => load({ showCache: false }));
 load();
