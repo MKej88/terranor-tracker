@@ -68,10 +68,77 @@ async function getPhaseCStatus(db) {
   return status;
 }
 
+function collectionStatus(run, fallback = "ready") {
+  if (run?.status === "ok") return "active";
+  if (["error", "partial"].includes(String(run?.status || ""))) return "error";
+  return fallback;
+}
+
+async function getFastOverview(db, env) {
+  const [smhiRun, vvisRun, dmiRun, fmiRun, workability, contracts, weather, nordicCounts, nordicObservations] = await Promise.all([
+    db.prepare(`SELECT source, status, started_at, finished_at, observations_written, error_text
+      FROM weather_collection_runs WHERE source='SMHI' ORDER BY id DESC LIMIT 1`).first(),
+    db.prepare(`SELECT source, status, started_at, finished_at, observations_written, error_text
+      FROM weather_collection_runs WHERE source='VVIS' ORDER BY id DESC LIMIT 1`).first(),
+    db.prepare(`SELECT source, status, started_at, finished_at, targets_attempted, targets_completed,
+      observations_written, error_text FROM nordic_weather_runs WHERE source='DMI' ORDER BY id DESC LIMIT 1`).first(),
+    db.prepare(`SELECT source, status, started_at, finished_at, targets_attempted, targets_completed,
+      observations_written, error_text FROM nordic_weather_runs WHERE source='FMI' ORDER BY id DESC LIMIT 1`).first(),
+    db.prepare(`SELECT MAX(generated_at) AS generated_at FROM workability_snapshots`).first(),
+    db.prepare(`SELECT COUNT(*) AS count FROM contracts`).first(),
+    db.prepare(`SELECT COUNT(*) AS count FROM weather_observations`).first(),
+    db.prepare(`SELECT country, COUNT(*) AS targets,
+      SUM(CASE WHEN station_id IS NOT NULL THEN 1 ELSE 0 END) AS linked
+      FROM nordic_weather_targets WHERE active=1 GROUP BY country`).all(),
+    db.prepare(`SELECT source, COUNT(*) AS observations, MAX(observed_at) AS latest
+      FROM weather_observations WHERE source IN ('DMI','FMI') GROUP BY source`).all(),
+  ]);
+
+  const countries = Object.fromEntries((nordicCounts?.results || []).map((row) => [row.country, {
+    targets: Number(row.targets || 0),
+    linked: Number(row.linked || 0),
+  }]));
+  const ranges = Object.fromEntries((nordicObservations?.results || []).map((row) => [row.source, row]));
+
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    dataCollection: {
+      contracts: "seeded",
+      smhi: collectionStatus(smhiRun),
+      trafficWeather: collectionStatus(vvisRun, env.TRAFIKVERKET_API_KEY ? "ready" : "awaiting API key"),
+      workability: workability?.generated_at ? "active" : "warming_up",
+      forecastHistory: "database connected",
+      dmi: collectionStatus(dmiRun),
+      fmi: collectionStatus(fmiRun),
+    },
+    tables: {
+      contracts: Number(contracts?.count || 0),
+      weatherObservations: Number(weather?.count || 0),
+    },
+    sources: {
+      DMI: {
+        status: dmiRun?.status || "ikke_kjørt",
+        lastRun: dmiRun || null,
+        observations: Number(ranges?.DMI?.observations || 0),
+        latest: ranges?.DMI?.latest || null,
+      },
+      FMI: {
+        status: fmiRun?.status || "ikke_kjørt",
+        lastRun: fmiRun || null,
+        observations: Number(ranges?.FMI?.observations || 0),
+        latest: ranges?.FMI?.latest || null,
+      },
+    },
+    countries,
+  };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const isExtendedApi = [
+      "/api/overview",
       "/api/backfill/smhi/run",
       "/api/backfill/smhi/status",
       "/api/contract-bridge",
@@ -99,6 +166,10 @@ export default {
 
     try {
       if (!env.DB) return json({ ok: false, error: "D1-bindingen DB mangler" }, { status: 503 });
+
+      if (url.pathname === "/api/overview") {
+        return json(await getFastOverview(env.DB, env));
+      }
 
       if (url.pathname === "/api/backfill/smhi/run") {
         return json(await runSmhiBackfill(env.DB, {
