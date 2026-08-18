@@ -46,8 +46,19 @@ function signed(value, suffix = "") {
   return `${prefix}${fmt(Math.abs(n), 1)}${suffix}`;
 }
 
-function countryBackfill(backfill, country) {
-  const rows = (backfill?.targetStatus || []).filter((row) => row.country === country);
+function q3TargetIds(climate, country) {
+  return new Set((climate?.q3TargetStatus || [])
+    .filter((row) => row.country === country)
+    .map((row) => Number(row.target_id))
+    .filter(Number.isFinite));
+}
+
+function countryBackfill(backfill, country, climate) {
+  const ids = q3TargetIds(climate, country);
+  const allRows = (backfill?.targetStatus || []).filter((row) => row.country === country);
+  const rows = ids.size
+    ? allRows.filter((row) => ids.has(Number(row.id ?? row.target_id)))
+    : allRows;
   const complete = rows.filter((row) => row.complete).length;
   return {
     targets: rows.length,
@@ -57,17 +68,16 @@ function countryBackfill(backfill, country) {
 }
 
 function readinessRows(country, fast, climate, comparison) {
-  const c = fast?.status?.countries?.[country] || {};
   const source = country === "Denmark" ? fast?.status?.sources?.DMI : fast?.status?.sources?.FMI;
-  const short = countryBackfill(fast?.backfill, country);
+  const short = countryBackfill(fast?.backfill, country, climate);
   const long = climate?.countries?.[country] || {};
   const comp = comparison?.countries?.[country] || {};
   return [
     { label: "Løpende værkilde er i drift", ok: source?.status === "ok" },
-    { label: "Alle værankere er koblet til målestasjon", ok: Number(c.targets || 0) > 0 && Number(c.linked || 0) === Number(c.targets || 0) },
-    { label: "Minst 90 % har 60-dagers historikk", ok: short.targets > 0 && short.pct >= 90 },
+    { label: "Alle Q3-værankere er koblet til målestasjon", ok: Number(long.targets || 0) > 0 && Number(long.linkedTargets || 0) === Number(long.targets || 0) },
+    { label: "Minst 90 % av Q3-ankrene har 60-dagers historikk", ok: short.targets > 0 && short.pct >= 90 },
     { label: "Minst 90 % av 10-årsjobbene har brukbare data", ok: Number(long.usablePct || 0) >= 90 && Number(long.errorTasks || 0) === 0 },
-    { label: "Minst 90 % kan sammenlignes mot 2016–2025", ok: Number(comp.coveragePct || 0) >= 90 },
+    { label: "Minst 90 % av Q3-ankrene kan sammenlignes mot 2016–2025", ok: Number(comp.coveragePct || 0) >= 90 },
   ];
 }
 
@@ -106,29 +116,32 @@ function renderClimate(climate) {
   const usablePct = totalTasks ? Math.round(100 * okTasks / totalTasks) : 0;
 
   document.querySelector("#long-history").textContent = `${fmt(usablePct)} %`;
-  document.querySelector("#long-history-text").textContent = `${fmt(okTasks)} av ${fmt(totalTasks)} månedsjobber med data`;
+  document.querySelector("#long-history-text").textContent = `${fmt(okTasks)} av ${fmt(totalTasks)} Q3-månedsjobber med data`;
   document.querySelector("#climate-progress").style.width = `${Math.max(0, Math.min(100, pct))}%`;
   document.querySelector("#climate-detail").textContent = totalTasks
-    ? `${fmt(finished)} av ${fmt(totalTasks)} månedsjobber er ferdig behandlet. ${fmt(okTasks)} har brukbare historiske data. Sammenligningsperioden er Q3 ${climate.baseline}.`
-    : "Venter på at værankrene skal bli koblet til målestasjoner.";
+    ? `${fmt(finished)} av ${fmt(totalTasks)} Q3-månedsjobber er ferdig behandlet. ${fmt(okTasks)} har brukbare historiske data. Sammenligningsperioden er Q3 ${climate.baseline}.`
+    : "Venter på at Q3-værankrene skal bli koblet til målestasjoner.";
 
   const errors = totals.reduce((sum, row) => sum + Number(row.errorTasks || 0), 0);
   pill("#climate-pill", errors ? `${errors} feil` : climate?.complete ? "ferdig" : `${pct} % behandlet`, Boolean(climate?.complete && errors === 0));
 
   for (const country of ["Denmark", "Finland"]) {
     const row = countries[country] || {};
+    const prefix = country === "Denmark" ? "denmark" : "finland";
+    document.querySelector(`#${prefix}-targets`).textContent = fmt(row.targets || 0);
+    document.querySelector(`#${prefix}-linked`).textContent = `${fmt(row.linkedTargets || 0)} koblet · ${fmt(row.futureTargets || 0)} fremtidige utenfor Q3`;
     const id = country === "Denmark" ? "#denmark-climate" : "#finland-climate";
     document.querySelector(id).innerHTML = `
-      <div class="status-row"><span>${countryName(country)} · klare værankere</span><b>${fmt(row.targetsReady || 0)} / ${fmt(row.targets || 0)}</b></div>
+      <div class="status-row"><span>${countryName(country)} · Q3-værankere med full 10-årshistorikk</span><b>${fmt(row.targetsReady || 0)} / ${fmt(row.targets || 0)}</b></div>
       <div class="status-row"><span>Brukbare 10-årsjobber</span><b>${fmt(row.usablePct || 0)} %</b></div>
       <div class="status-row"><span>Ikke tilgjengelige måneder</span><b>${fmt(row.unavailableTasks || 0)}</b></div>
       <div class="status-row"><span>Feil som prøves igjen</span><b class="${Number(row.errorTasks || 0) ? "text-warn" : "text-good"}">${fmt(row.errorTasks || 0)}</b></div>
-      <div class="status-row"><span>Geografiske proxyer</span><b>${fmt(row.proxyTargets || 0)}</b></div>
-      <div class="status-row"><span>Værankere koblet til kontrakt</span><b>${fmt(row.contractLinkedTargets || 0)} / ${fmt(row.targets || 0)}</b></div>
+      <div class="status-row"><span>Geografiske proxyer i Q3</span><b>${fmt(row.proxyTargets || 0)}</b></div>
+      <div class="status-row"><span>Q3-værankere koblet til kontrakt</span><b>${fmt(row.contractLinkedTargets || 0)} / ${fmt(row.targets || 0)}</b></div>
     `;
   }
 
-  const rows = climate?.targetStatus || [];
+  const rows = climate?.q3TargetStatus || (climate?.targetStatus || []).filter((row) => row.q3_relevant !== false);
   document.querySelector("#climate-body").innerHTML = rows.length ? rows.map((row) => `
     <tr>
       <td>${countryName(row.country)}</td>
@@ -139,7 +152,7 @@ function renderClimate(climate) {
       <td><b class="${Number(row.error_tasks || 0) ? "text-warn" : "text-good"}">${fmt(row.error_tasks)}</b></td>
       <td>${fmt(row.remaining_tasks)}</td>
       <td>${row.proxy ? "proxy" : "direkte område"}</td>
-    </tr>`).join("") : `<tr><td colspan="8">Ingen værankere med historikkstatus.</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="8">Ingen Q3-værankere med historikkstatus.</td></tr>`;
 }
 
 function renderComparison(comparison) {
@@ -147,15 +160,20 @@ function renderComparison(comparison) {
     const row = comparison?.countries?.[country] || {};
     const prefix = country === "Denmark" ? "denmark" : "finland";
     document.querySelector(`#${prefix}-ready`).textContent = `${fmt(row.targetsReady || 0)} / ${fmt(row.targets || 0)}`;
-    document.querySelector(`#${prefix}-comparison-text`).textContent = `${fmt(row.coveragePct || 0, 1)} % av værankrene`;
-    const anomaly = row.weightedAnomalyPoints ?? row.simpleAnomalyPoints;
+    const total = Number(row.targets || 0);
+    const economicallyLinked = Number(row.economicallyLinkedTargets || 0);
+    const useWeighted = total > 0 && economicallyLinked / total >= 0.8 && row.weightedAnomalyPoints !== null && row.weightedAnomalyPoints !== undefined;
+    document.querySelector(`#${prefix}-comparison-text`).textContent = useWeighted
+      ? `${fmt(row.coveragePct || 0, 1)} % av Q3-ankrene · økonomisk vektet`
+      : `${fmt(row.coveragePct || 0, 1)} % av Q3-ankrene · enkelt snitt`;
+    const anomaly = useWeighted ? row.weightedAnomalyPoints : row.simpleAnomalyPoints;
     document.querySelector(`#${prefix}-anomaly`).textContent = signed(anomaly, " p");
   }
 
   const dk = comparison?.countries?.Denmark || {};
   const fi = comparison?.countries?.Finland || {};
   const allReady = Number(dk.coveragePct || 0) >= 90 && Number(fi.coveragePct || 0) >= 90;
-  pill("#comparison-pill", allReady ? "god dekning" : "historikk bygges", allReady);
+  pill("#comparison-pill", allReady ? "god Q3-dekning" : "historikk bygges", allReady);
   document.querySelector("#comparison-note").textContent = comparison?.interpretation || "";
 
   const rows = comparison?.targets || [];
@@ -169,16 +187,24 @@ function renderComparison(comparison) {
       <td>${signed(row.high_wind_delta_pct, " pp")}</td>
       <td><b class="${Number(row.workability_anomaly_points) >= 0 && row.ready ? "text-good" : row.ready ? "text-warn" : ""}">${signed(row.workability_anomaly_points, " p")}</b></td>
       <td>${fmt(row.baseline_years)}</td>
-    </tr>`).join("") : `<tr><td colspan="8">Ingen historisk sammenligning tilgjengelig ennå.</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="8">Ingen Q3-historisk sammenligning tilgjengelig ennå.</td></tr>`;
 }
 
 let state = {};
 
 function renderOverall() {
   if (!state.fast || !state.climate || !state.comparison) return;
+  const dkShort = countryBackfill(state.fast?.backfill, "Denmark", state.climate);
+  const fiShort = countryBackfill(state.fast?.backfill, "Finland", state.climate);
+  const shortTotal = dkShort.targets + fiShort.targets;
+  const shortComplete = dkShort.complete + fiShort.complete;
+  const shortPct = shortTotal ? Math.round(100 * shortComplete / shortTotal) : 0;
+  document.querySelector("#short-history").textContent = shortTotal ? `${fmt(shortComplete)} / ${fmt(shortTotal)}` : "—";
+  document.querySelector("#short-history-text").textContent = shortTotal ? `${fmt(shortPct)} % av Q3-værankrene` : "venter på Q3-værankere";
+
   const dk = renderReadiness("Denmark", state.fast, state.climate, state.comparison);
   const fi = renderReadiness("Finland", state.fast, state.climate, state.comparison);
-  pill("#overall-pill", dk && fi ? "begge land er klare" : dk || fi ? "ett land er klart" : "historikk bygges", dk && fi);
+  pill("#overall-pill", dk && fi ? "begge land er klare for Q3" : dk || fi ? "ett land er klart for Q3" : "Q3-historikk bygges", dk && fi);
 }
 
 async function load() {
@@ -197,7 +223,7 @@ async function load() {
     renderOverall();
     document.querySelector("#updated-line").textContent = failed.length
       ? `Oppdatert ${time(new Date().toISOString())}. ${failed.length} del${failed.length === 1 ? "" : "er"} kunne ikke hentes.`
-      : `Oppdatert ${time(new Date().toISOString())}. Historikken bygges automatisk videre hver time.`;
+      : `Oppdatert ${time(new Date().toISOString())}. Q3-historikken bygges automatisk videre hver time.`;
     for (const row of failed) console.error(row.reason);
   } finally {
     button.disabled = false;
