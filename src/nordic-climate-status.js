@@ -58,8 +58,9 @@ function qualityForTarget(metrics = {}) {
 }
 
 export async function getNordicClimateStatus(db) {
-  const [base, qualityMap, relevanceResult] = await Promise.all([
-    getBaseNordicClimateStatus(db),
+  // Basestatus oppretter/oppgraderer nordisk klimaskjema og oppgaver. Les kvalitetsdata etterpå.
+  const base = await getBaseNordicClimateStatus(db);
+  const [qualityMap, relevanceResult] = await Promise.all([
     historicalQualityByTarget(db),
     db.prepare(`SELECT t.id AS target_id, t.label, t.contract_id,
         c.start_date, c.end_date
