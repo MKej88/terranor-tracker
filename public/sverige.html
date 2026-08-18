@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Sverige værstatus · Terranor Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero compact-hero">
+        <div>
+          <p class="eyebrow">FASE A · SVERIGE</p>
+          <h1>Sverige værstatus</h1>
+          <p class="lede">Samlet kontroll av svenske veiværdata, SMHI-målinger, 60-dagers historikk, tiårig Q3-sammenligningsgrunnlag og geografisk dekning per kontrakt.</p>
+          <nav class="page-nav">
+            <a href="/">← Hovedsiden</a>
+            <a href="/status.html">Datastatus</a>
+            <a href="/fase-b.html">Fase B</a>
+            <a href="/fase-c.html">Fase C</a>
+            <button id="run-backfill" type="button">Fyll 60 dager nå</button>
+            <button id="run-climate" type="button">Fyll 10-årsgrunnlag nå</button>
+            <button id="refresh-button" type="button">Oppdater siden</button>
+          </nav>
+        </div>
+        <div class="pill" id="sweden-pill">henter status…</div>
+      </header>
+
+      <section class="grid kpis status-kpis">
+        <article class="card">
+          <span>Svenske Q3-kontrakter</span>
+          <strong id="contract-count">—</strong>
+          <small>Kontrakter med aktivt væranker i Q3</small>
+        </article>
+        <article class="card">
+          <span>Geografisk dekning</span>
+          <strong id="geography-coverage">—</strong>
+          <small id="geography-summary">Målestasjoner per kontrakt</small>
+        </article>
+        <article class="card">
+          <span>60-dagers historikk</span>
+          <strong id="backfill-summary">—</strong>
+          <small id="backfill-kpi-text">SMHI-stasjoner</small>
+        </article>
+        <article class="card">
+          <span>10-årsgrunnlag</span>
+          <strong id="climate-progress-kpi">—</strong>
+          <small id="climate-kpi-text">2016–2025 · Q3</small>
+        </article>
+      </section>
+
+      <section class="grid two status-panel-gap">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">KLAR FOR MODELLEN?</p>
+              <h2>Samlet datagrunnlag</h2>
+            </div>
+            <span class="pill" id="readiness-pill">—</span>
+          </div>
+          <div class="status-list" id="readiness-list">
+            <div class="status-row"><span>Kontrollerer…</span><b>—</b></div>
+          </div>
+          <p class="status-note">Siden vurderer om datakjedene er teknisk og geografisk klare. Den sier ikke i seg selv hvor stor resultateffekten av været er.</p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">LØPENDE DATA</p>
+              <h2>SMHI og Trafikverket</h2>
+            </div>
+          </div>
+          <div class="status-list" id="live-source-list">
+            <div class="status-row"><span>Henter siste innsamling…</span><b>—</b></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">60-DAGERS HISTORIKK</p>
+            <h2>Primære SMHI-stasjoner</h2>
+          </div>
+          <span class="pill" id="backfill-pill">henter…</span>
+        </div>
+        <div class="progress-track"><div class="progress-bar" id="backfill-progress"></div></div>
+        <p class="status-note" id="backfill-detail">Henter status…</p>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Målestasjon</th>
+                <th>Målinger siste 60 dager</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="backfill-body">
+              <tr><td colspan="3">Henter stasjoner…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">10-ÅRIG SAMMENLIGNINGSGRUNNLAG</p>
+            <h2>Q3 2016–2025 per SMHI-stasjon</h2>
+          </div>
+          <span class="pill" id="climate-pill">henter…</span>
+        </div>
+        <div class="progress-track"><div class="progress-bar" id="climate-progress"></div></div>
+        <p class="status-note" id="climate-detail">Henter status…</p>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Målestasjon</th>
+                <th>Klare parametere</th>
+                <th>Ikke tilgjengelig</th>
+                <th>Feil</th>
+                <th>Gjenstår</th>
+                <th>Historiske år</th>
+              </tr>
+            </thead>
+            <tbody id="climate-body">
+              <tr><td colspan="6">Henter 10-årsgrunnlag…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">GEOGRAFISK DEKNING</p>
+            <h2>Værstasjoner per svensk kontrakt</h2>
+          </div>
+          <span class="pill" id="geography-pill">henter…</span>
+        </div>
+        <p class="status-note" id="geography-note">Henter metode…</p>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Kontrakt</th>
+                <th>Områdetype</th>
+                <th>Veivær</th>
+                <th>Vanlig vær</th>
+                <th>Dekning</th>
+                <th>Maks avstand</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="geography-body">
+              <tr><td colspan="7">Henter kontraktsdekning…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">VÆR MOT HISTORIKK</p>
+            <h2>Siste 7 dager mot 2016–2025</h2>
+          </div>
+          <span class="pill" id="comparison-pill">henter…</span>
+        </div>
+        <div class="grid kpis status-kpis">
+          <article class="card">
+            <span>Kontrakter klare</span>
+            <strong id="comparison-ready">—</strong>
+            <small>Har både aktuelle data og historikk</small>
+          </article>
+          <article class="card">
+            <span>Økonomisk vektet dekning</span>
+            <strong id="comparison-coverage">—</strong>
+            <small>Andel av Q3-vekt med sammenlignbare data</small>
+          </article>
+          <article class="card">
+            <span>Arbeidsforholdsavvik</span>
+            <strong id="comparison-anomaly">—</strong>
+            <small>Positivt = mer arbeidsvennlig enn historikk</small>
+          </article>
+          <article class="card">
+            <span>Sammenligningsperiode</span>
+            <strong id="comparison-baseline">—</strong>
+            <small>Historiske kalenderdager</small>
+          </article>
+        </div>
+        <p class="status-note" id="comparison-note"></p>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Kontrakt</th>
+                <th>SMHI-stasjon</th>
+                <th>Temp. avvik</th>
+                <th>Nedbørshendelser</th>
+                <th>Høy vind</th>
+                <th>Arbeidsforhold</th>
+                <th>Historiske år</th>
+              </tr>
+            </thead>
+            <tbody id="comparison-body">
+              <tr><td colspan="7">Henter sammenligning…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="grid two status-panel-gap">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">METODE</p>
+              <h2>Hva som er godt dekket</h2>
+            </div>
+          </div>
+          <div class="status-list">
+            <div class="status-row"><span>Løpende veivær</span><b>Trafikverket</b></div>
+            <div class="status-row"><span>Løpende vanlig vær</span><b>SMHI</b></div>
+            <div class="status-row"><span>Kort historikk</span><b>60 dager</b></div>
+            <div class="status-row"><span>Lang historikk</span><b>Q3 2016–2025</b></div>
+            <div class="status-row"><span>Store driftsområder</span><b>opptil 3 + 2 stasjoner</b></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">BEGRENSNING</p>
+              <h2>Det viktigste som fortsatt kan forbedres</h2>
+            </div>
+          </div>
+          <div class="problem-list">
+            <div class="problem-row"><div><b>Kontraktsgrenser</b><span>Stasjonene er valgt rundt representative værankere. Eksakte driftsområdepolygoner vil gi bedre geografisk presisjon, særlig i store områder.</span></div></div>
+            <div class="problem-row"><div><b>Historisk sammenligning</b><span>10-årsgrunnlaget bruker SMHI-data. Trafikverkets veibaneforhold inngår ikke i den historiske 2016–2025-sammenligningen.</span></div></div>
+          </div>
+        </article>
+      </section>
+
+      <p class="updated-line" id="updated-line">—</p>
+      <footer>Terranor Tracker · Sverige værstatus</footer>
+    </main>
+    <script src="/sverige.js" type="module"></script>
+  </body>
+</html>
