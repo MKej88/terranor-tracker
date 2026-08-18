@@ -1,12 +1,26 @@
-const relevantTypes = new Set(["utlost_option", "tilleggsarbeid", "ny_bestilling"]);
+const relevantTypes = new Set([
+  "utlost_option",
+  "tilleggsarbeid",
+  "ny_bestilling",
+  "kommunal_oppfolging",
+  "kommunal_tildeling",
+  "kommunal_aktivitet",
+  "kommunal_beslutning",
+  "kontraktsendring",
+]);
 
 const typeName = (type) => ({
   utlost_option: "Utløst opsjon",
   tilleggsarbeid: "Tilleggsarbeid",
   ny_bestilling: "Ny bestilling",
   ny_kontrakt: "Ny hovedkontrakt",
+  kommunal_oppfolging: "Kommunal kontraktsoppfølging",
+  kommunal_tildeling: "Kommunal tildeling",
+  kommunal_aktivitet: "Kommunal aktivitet",
+  kommunal_beslutning: "Kommunal beslutning",
+  kontraktsendring: "Kontraktsendring",
   annen_aktivitet: "Annen aktivitet",
-}[type] || String(type || "Ukjent"));
+}[type] || String(type || "Ukjent").replaceAll("_", " "));
 
 const statusName = (status) => ({
   aktiv: "aktiv",
@@ -17,6 +31,11 @@ const statusName = (status) => ({
   godkjent: "godkjent",
   ignorert: "ignorert",
   allerede_registrert: "allerede registrert",
+  ok: "aktiv",
+  partial: "delvis",
+  error: "feil",
+  venter_pa_forste_kjoring: "venter på første kontroll",
+  unchanged: "uendret",
 }[status] || String(status || "ukjent").replaceAll("_", " "));
 
 const escapeHtml = (value) => String(value ?? "")
@@ -208,6 +227,78 @@ function renderTrafikverket(status, awardsData, planData) {
   }
 }
 
+function municipalNewCount(status) {
+  return (status?.sources || []).reduce((sum, source) => sum + Number(source?.candidates?.ny || 0), 0);
+}
+
+function renderMunicipal(status) {
+  const pill = document.querySelector("#municipal-pill");
+  const sources = status?.sources || [];
+  const recent = status?.recentCandidates || [];
+  const active = Number(status?.activeSources || 0);
+  const newCount = municipalNewCount(status);
+  const latest = status?.latestRun;
+
+  document.querySelector("#municipal-source-count").textContent = formatNumber(sources.length);
+  document.querySelector("#municipal-active-count").textContent = sources.length ? `${formatNumber(active)} / ${formatNumber(sources.length)}` : "—";
+  document.querySelector("#municipal-active-detail").textContent = sources.length
+    ? `${formatNumber(active)} av ${formatNumber(sources.length)} kilder svarte uten feil sist`
+    : "Av kommunale kilder";
+  document.querySelector("#municipal-new-count").textContent = formatNumber(newCount);
+  document.querySelector("#municipal-candidate-pill").textContent = `${formatNumber(newCount)} nye`;
+  document.querySelector("#municipal-last-run").textContent = latest?.finished_at ? formatTime(latest.finished_at) : "ikke kjørt";
+  document.querySelector("#municipal-last-run-detail").textContent = latest?.status
+    ? `Siste kjøring: ${statusName(latest.status)} · automatisk daglig`
+    : "Daglig automatisk kontroll";
+
+  pill.classList.remove("ok");
+  if (!status || !sources.length) {
+    pill.textContent = "venter på første kontroll";
+  } else if (active === sources.length) {
+    pill.textContent = `${active}/${sources.length} aktive`;
+    pill.classList.add("ok");
+  } else if (active > 0) {
+    pill.textContent = `${active}/${sources.length} svarte`;
+  } else {
+    pill.textContent = "ingen kilder svarte";
+  }
+
+  const sourceBody = document.querySelector("#municipal-source-body");
+  if (!sources.length) {
+    sourceBody.innerHTML = `<tr><td colspan="5">Ingen kommunal status ennå. Bruk «Søk etter nye funn» for første kontroll.</td></tr>`;
+  } else {
+    sourceBody.innerHTML = sources.map((source) => {
+      const sourceNew = Number(source?.candidates?.ny || 0);
+      const sourceOk = source.status === "ok";
+      return `
+        <tr>
+          <td><a class="table-link" href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer">${escapeHtml(source.name)}</a></td>
+          <td>${escapeHtml(source.municipality || "Felles/offentlig")}</td>
+          <td><b class="${sourceOk ? "text-good" : ""}">${escapeHtml(statusName(source.status))}</b>${source.error ? `<small class="table-subtext">${escapeHtml(source.error)}</small>` : ""}</td>
+          <td>${formatTime(source.lastCheckedAt)}</td>
+          <td>${sourceNew ? `<b>${formatNumber(sourceNew)}</b>` : "0"}</td>
+        </tr>`;
+    }).join("");
+  }
+
+  const candidateBody = document.querySelector("#municipal-candidate-body");
+  if (!recent.length) {
+    candidateBody.innerHTML = `<tr><td colspan="7"><div class="empty-good"><b>Ingen kommunale funn ennå</b><span>Når en overvåket kommune eller e-Avrop gir et relevant treff, vises det her.</span></div></td></tr>`;
+  } else {
+    candidateBody.innerHTML = recent.map((row) => `
+      <tr>
+        <td>${formatDate(row.published_at || row.created_at)}</td>
+        <td><a class="table-link" href="${escapeHtml(row.item_url)}" target="_blank" rel="noreferrer">${escapeHtml(row.title)}</a></td>
+        <td>${escapeHtml(row.source_name || "—")}</td>
+        <td><span class="badge">${escapeHtml(typeName(row.signal_type))}</span></td>
+        <td>${escapeHtml(row.contract_name || "Ikke koblet")}</td>
+        <td>${Number.isFinite(Number(row.relevance_score)) ? `${formatNumber(row.relevance_score)} %` : "—"}</td>
+        <td>${candidateActions(row)}</td>
+      </tr>
+    `).join("");
+  }
+}
+
 function candidateActions(row) {
   if (row.review_status !== "ny") return `<span class="badge">${escapeHtml(statusName(row.review_status))}</span>`;
   return `
@@ -305,6 +396,7 @@ async function loadPage() {
     renderTop(activity);
     renderSources(activity);
     renderTrafikverket(activity?.trafikverket, awards, plan);
+    renderMunicipal(activity?.municipal);
     renderCandidates(candidates);
     renderSignals(signals);
     bindReviewButtons();
@@ -325,9 +417,12 @@ async function runMonitor() {
   button.textContent = "Søker…";
   try {
     const result = await getJson("/api/activity/run");
-    const found = Number(result?.candidatesWritten || 0);
+    const companyFound = Number(result?.candidatesWritten || 0);
+    const municipalFound = Number(result?.municipal?.candidatesWritten || 0);
+    const found = companyFound + municipalFound;
     const tvOk = result?.trafikverket?.ok === true;
-    button.textContent = found ? `${found} nye funn` : (tvOk ? "Kildesøk ferdig" : "Ingen nye funn");
+    const municipalOk = result?.municipal?.ok === true;
+    button.textContent = found ? `${found} nye funn` : (tvOk && municipalOk ? "Kildesøk ferdig" : "Søk ferdig med kildefeil");
     await loadPage();
   } catch (error) {
     button.textContent = "Søket feilet";
