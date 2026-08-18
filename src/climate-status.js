@@ -38,7 +38,10 @@ function buildQualityMap(rows) {
 }
 
 export async function getClimateStatus(db) {
-  const [base, rows] = await Promise.all([getBaseClimateStatus(db), qualityRows(db)]);
+  // Basestatus oppretter/oppgraderer skjema og klimajobber. Kvalitetsspørringen må derfor
+  // kjøres etterpå, ikke parallelt på en helt ny database.
+  const base = await getBaseClimateStatus(db);
+  const rows = await qualityRows(db);
   const qualityMap = buildQualityMap(rows);
 
   const stationStatus = (base.stationStatus || []).map((row) => {
