@@ -38,7 +38,7 @@
         <article class="card">
           <span>Registrerte signaler</span>
           <strong id="signal-count">—</strong>
-          <small>Opsjoner, tilleggsarbeider og bestillinger</small>
+          <small>Opsjoner, bestillinger, tildelinger og oppfølging</small>
         </article>
         <article class="card">
           <span>Sist kontrollert</span>
@@ -70,7 +70,7 @@
           <p class="status-note no-top-margin" id="accounting-rule">Henter regel…</p>
           <div class="status-list compact-rule-list">
             <div class="status-row"><span>Automatisk registrering</span><b>tydelige opsjoner og bestillinger</b></div>
-            <div class="status-row"><span>Manuell vurdering</span><b>uklare funn og hovedkontrakter</b></div>
+            <div class="status-row"><span>Manuell vurdering</span><b>kommunale funn og hovedkontrakter</b></div>
             <div class="status-row"><span>Resultatestimat</span><b>påvirkes ikke automatisk</b></div>
           </div>
         </article>
@@ -160,11 +160,95 @@
         </div>
       </section>
 
+      <section class="panel status-panel-gap" id="municipal-section">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">KOMMUNALE KILDER</p>
+            <h2>Kommunale beslutninger og bestillinger</h2>
+            <p class="status-note no-top-margin">Falun, Borås, Norrköping, Helsingborg og e-Avrop overvåkes for tildelinger, opsjoner, bestillinger, kontraktsendringer og kontraktsoppfølging. Funn må vurderes før de brukes i modellen.</p>
+          </div>
+          <span class="pill" id="municipal-pill">henter…</span>
+        </div>
+
+        <div class="grid kpis status-kpis">
+          <article class="card">
+            <span>Kommunale kilder</span>
+            <strong id="municipal-source-count">—</strong>
+            <small>Kilder som inngår i overvåkingen</small>
+          </article>
+          <article class="card">
+            <span>Svarte sist</span>
+            <strong id="municipal-active-count">—</strong>
+            <small id="municipal-active-detail">Av kommunale kilder</small>
+          </article>
+          <article class="card">
+            <span>Nye kommunale funn</span>
+            <strong id="municipal-new-count">—</strong>
+            <small>Venter på vurdering</small>
+          </article>
+          <article class="card">
+            <span>Sist kontrollert</span>
+            <strong id="municipal-last-run">—</strong>
+            <small id="municipal-last-run-detail">Daglig automatisk kontroll</small>
+          </article>
+        </div>
+
+        <div class="panel-head status-panel-gap">
+          <div>
+            <p class="eyebrow">KILDESTATUS</p>
+            <h3>Kommunale kilder som overvåkes</h3>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Kilde</th>
+                <th>Kommune</th>
+                <th>Status</th>
+                <th>Sist kontrollert</th>
+                <th>Nye funn</th>
+              </tr>
+            </thead>
+            <tbody id="municipal-source-body">
+              <tr><td colspan="5">Henter kommunale kilder…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel-head status-panel-gap">
+          <div>
+            <p class="eyebrow">SISTE KOMMUNALE FUNN</p>
+            <h3>Funn fra kommuner og offentlige innkjøpskilder</h3>
+          </div>
+          <span class="pill" id="municipal-candidate-pill">—</span>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Dato</th>
+                <th>Funn</th>
+                <th>Kilde</th>
+                <th>Type</th>
+                <th>Kontrakt</th>
+                <th>Relevans</th>
+                <th>Handling</th>
+              </tr>
+            </thead>
+            <tbody id="municipal-candidate-body">
+              <tr><td colspan="7">Henter kommunale funn…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="panel status-panel-gap">
         <div class="panel-head">
           <div>
             <p class="eyebrow">NYE FUNN</p>
             <h2>Trenger vurdering</h2>
+            <p class="status-note no-top-margin">Samlet vurderingskø fra alle kilder. Kommunale funn vises både her og i kommunedelen over til de er godkjent eller ignorert.</p>
           </div>
           <span class="pill" id="candidate-pill">—</span>
         </div>
@@ -192,7 +276,7 @@
         <div class="panel-head">
           <div>
             <p class="eyebrow">REGISTRERTE SIGNALER</p>
-            <h2>Opsjoner, tilleggsarbeider og bestillinger</h2>
+            <h2>Opsjoner, bestillinger, tildelinger og kontraktsoppfølging</h2>
           </div>
         </div>
         <div class="table-wrap">
