@@ -18,6 +18,8 @@ import { ensureNordicContracts } from "./nordic-contracts.js";
 import { ensureNordicExtraTargets } from "./nordic-extra-targets.js";
 import { ensureDenmarkStateTargets } from "./nordic-denmark-targets.js";
 import { getNordicBackfillStatus, runNordicBackfill } from "./nordic-backfill.js";
+import { collectSmhiWeather } from "./weather.js";
+import { collectVvisWeather } from "./vvis.js";
 
 const json = (data, init = {}) => new Response(JSON.stringify(data, null, 2), {
   ...init,
@@ -231,16 +233,35 @@ export default {
   async scheduled(controller, env) {
     const cron = String(controller.cron || "");
 
-    // Workers Free has a hard limit of 50 external subrequests per invocation.
-    // The collectors are therefore deliberately staggered across separate cron
-    // invocations instead of running Sweden + Denmark + Finland in one Worker run.
-    if (cron === "15 * * * *") {
-      await baseWorker.scheduled(controller, env);
+    // Workers Free is deliberately kept to one heavier collector per invocation.
+    // This avoids both the 50 external-subrequest ceiling and the very small CPU
+    // budget on the free tier. Derived workability is calculated on demand for now.
+    if (!env.DB) {
+      console.error("Scheduled collection skipped: D1 binding missing");
       return;
     }
 
-    if (!env.DB) {
-      console.error("Scheduled collection skipped: D1 binding missing");
+    if (cron === "5 * * * *") {
+      try {
+        const result = await collectSmhiWeather(env.DB);
+        console.log(JSON.stringify({ event: "scheduled-smhi-collection", cron, ...result }));
+      } catch (error) {
+        console.error("Automatisk SMHI-innsamling feilet", error);
+      }
+      return;
+    }
+
+    if (cron === "15 * * * *") {
+      if (!env.TRAFIKVERKET_API_KEY) {
+        console.error("Automatisk VViS-innsamling hoppet over: TRAFIKVERKET_API_KEY mangler");
+        return;
+      }
+      try {
+        const result = await collectVvisWeather(env.DB, env.TRAFIKVERKET_API_KEY);
+        console.log(JSON.stringify({ event: "scheduled-vvis-collection", cron, ...result }));
+      } catch (error) {
+        console.error("Automatisk VViS-innsamling feilet", error);
+      }
       return;
     }
 
