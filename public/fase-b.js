@@ -57,6 +57,27 @@ const formatAgeHours = (hours) => {
   return `${formatNumber(n / 24, 1)} d siden`;
 };
 
+const formatMsek = (value, digits = 1) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? `${formatNumber(n, digits)} MSEK` : "—";
+};
+
+const formatSekAsMsek = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? `${formatNumber(n / 1_000_000, 1)} MSEK` : "—";
+};
+
+const formatRangeMsek = (low, high) => {
+  const a = Number(low);
+  const b = Number(high);
+  const hasA = Number.isFinite(a);
+  const hasB = Number.isFinite(b);
+  if (hasA && hasB) return a === b ? formatMsek(a, 0) : `${formatNumber(a)}–${formatNumber(b)} MSEK`;
+  if (hasA) return `> ${formatNumber(a)} MSEK`;
+  if (hasB) return `< ${formatNumber(b)} MSEK`;
+  return "—";
+};
+
 async function getJson(url, options = {}) {
   const response = await fetch(url, { cache: "no-store", ...options });
   const data = await response.json();
@@ -111,6 +132,80 @@ function renderSources(activity) {
       </div>
     `).join("")
     : `<div class="status-row"><span>Ingen kilder registrert</span><b>—</b></div>`;
+}
+
+function renderTrafikverket(status, awardsData, planData) {
+  const pill = document.querySelector("#trafikverket-pill");
+  const awards = awardsData?.awards || [];
+  const plan = planData?.plan || [];
+  const stats = status?.awards || {};
+  const pipeline = status?.pipeline || {};
+  const sourceStates = status?.sources || [];
+
+  document.querySelector("#tv-bids").textContent = formatNumber(stats.terranorParticipations);
+  document.querySelector("#tv-wins").textContent = formatNumber(stats.terranorWins);
+  document.querySelector("#tv-pipeline").textContent = formatNumber(pipeline.uniqueRows);
+  document.querySelector("#tv-contract-value").textContent = Number.isFinite(Number(stats.wonContractValueInclOptionsMsek))
+    ? formatMsek(stats.wonContractValueInclOptionsMsek, 1)
+    : "—";
+  document.querySelector("#tv-win-rate").textContent = Number.isFinite(Number(stats.winRatePct))
+    ? `${formatNumber(stats.winRatePct, 1)} % samlet win-rate`
+    : "Tildelingshistorikk i gjeldende kildefil";
+  document.querySelector("#tv-base-win-rate").textContent = Number.isFinite(Number(stats.baseRoadWinRatePct))
+    ? `${formatNumber(stats.baseRoadWins)} av ${formatNumber(stats.baseRoadParticipations)} Basunderhåll väg · ${formatNumber(stats.baseRoadWinRatePct, 1)} %`
+    : "Basunderhåll väg";
+
+  const years = Object.entries(pipeline.byContractStartYear || {})
+    .sort(([a], [b]) => String(a).localeCompare(String(b)));
+  document.querySelector("#tv-pipeline-detail").textContent = years.length
+    ? years.map(([year, value]) => `${year}: ${formatNumber(value.count)}`).join(" · ")
+    : "Unike planlagte basområder";
+
+  pill.classList.remove("ok");
+  if (status?.ok && sourceStates.length) {
+    pill.textContent = "aktiv";
+    pill.classList.add("ok");
+  } else if (awardsData?.error || planData?.error) {
+    pill.textContent = "kunne ikke hente data";
+  } else {
+    pill.textContent = "venter på første import";
+  }
+
+  const planBody = document.querySelector("#tv-plan-body");
+  if (!plan.length) {
+    planBody.innerHTML = `<tr><td colspan="7">${planData?.error ? `Feil: ${escapeHtml(planData.error)}` : "Ingen pipeline-data ennå. Bruk «Søk etter nye funn» for første import."}</td></tr>`;
+  } else {
+    planBody.innerHTML = plan.slice(0, 40).map((row) => `
+      <tr>
+        <td>${escapeHtml(row.procurement_name)}</td>
+        <td>${escapeHtml(row.region || "—")}</td>
+        <td>${formatDate(row.planned_ad_start)}</td>
+        <td>${formatDate(row.planned_bid_deadline)}</td>
+        <td>${formatDate(row.planned_contract_start)}</td>
+        <td><span class="badge ${String(row.planning_status || "").toLowerCase() === "säker" ? "text-good" : ""}">${escapeHtml(row.planning_status || "—")}</span></td>
+        <td>${formatRangeMsek(row.estimated_cost_low_msek, row.estimated_cost_high_msek)}</td>
+      </tr>
+    `).join("");
+  }
+
+  const awardBody = document.querySelector("#tv-award-body");
+  if (!awards.length) {
+    awardBody.innerHTML = `<tr><td colspan="7">${awardsData?.error ? `Feil: ${escapeHtml(awardsData.error)}` : "Ingen tildelingsdata ennå. Bruk «Søk etter nye funn» for første import."}</td></tr>`;
+  } else {
+    awardBody.innerHTML = awards.slice(0, 40).map((row) => {
+      const won = Number(row.terranor_won) === 1;
+      return `
+        <tr>
+          <td>${escapeHtml(row.procurement_name)}</td>
+          <td>${escapeHtml(row.purchase_category || "—")}</td>
+          <td><b class="${won ? "text-good" : ""}">${won ? "Vunnet" : "Ikke vunnet"}</b></td>
+          <td>${formatSekAsMsek(row.terranor_bid_sek)}</td>
+          <td>${escapeHtml(row.winner_name || "—")}</td>
+          <td>${formatSekAsMsek(row.contract_value_sek)}</td>
+          <td>${formatDate(row.contract_start)}</td>
+        </tr>`;
+    }).join("");
+  }
 }
 
 function candidateActions(row) {
@@ -200,13 +295,16 @@ async function loadPage() {
   refresh.disabled = true;
   refresh.textContent = "Oppdaterer…";
   try {
-    const [activity, candidates, signals] = await Promise.all([
+    const [activity, candidates, signals, awards, plan] = await Promise.all([
       getJson("/api/activity/status"),
       getJson("/api/activity/candidates?limit=100"),
       getJson("/api/signals?limit=200"),
+      getJson("/api/trafikverket/awards?limit=100").catch((error) => ({ awards: [], error: error.message })),
+      getJson("/api/trafikverket/plan?limit=150").catch((error) => ({ plan: [], error: error.message })),
     ]);
     renderTop(activity);
     renderSources(activity);
+    renderTrafikverket(activity?.trafikverket, awards, plan);
     renderCandidates(candidates);
     renderSignals(signals);
     bindReviewButtons();
@@ -228,7 +326,8 @@ async function runMonitor() {
   try {
     const result = await getJson("/api/activity/run");
     const found = Number(result?.candidatesWritten || 0);
-    button.textContent = found ? `${found} nye funn` : "Ingen nye funn";
+    const tvOk = result?.trafikverket?.ok === true;
+    button.textContent = found ? `${found} nye funn` : (tvOk ? "Kildesøk ferdig" : "Ingen nye funn");
     await loadPage();
   } catch (error) {
     button.textContent = "Søket feilet";
