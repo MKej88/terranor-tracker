@@ -13,7 +13,7 @@
         <div>
           <p class="eyebrow">FASE B</p>
           <h1>Tilleggsarbeider og bestillinger</h1>
-          <p class="lede">Egen oversikt over kildebelagte opsjoner, tilleggsarbeider, nye bestillinger og andre aktivitetssignaler.</p>
+          <p class="lede">Egen oversikt over kildebelagte opsjoner, tilleggsarbeider, nye bestillinger og offentlige anbuds- og kontraktssignaler.</p>
           <nav class="page-nav">
             <a href="/">← Hovedsiden</a>
             <a href="/status.html">Datastatus</a>
@@ -74,6 +74,90 @@
             <div class="status-row"><span>Resultatestimat</span><b>påvirkes ikke automatisk</b></div>
           </div>
         </article>
+      </section>
+
+      <section class="panel status-panel-gap">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">TRAFIKVERKET</p>
+            <h2>Anbudspipeline og tildelinger</h2>
+            <p class="status-note no-top-margin">Offentlige Basunderhåll väg-planer og anskaffelser der Terranor har levert tilbud. Kontraktsverdi fra Trafikverket vises inklusive opsjoner.</p>
+          </div>
+          <span class="pill" id="trafikverket-pill">henter…</span>
+        </div>
+
+        <div class="grid kpis status-kpis">
+          <article class="card">
+            <span>Terranor-tilbud</span>
+            <strong id="tv-bids">—</strong>
+            <small id="tv-win-rate">Tildelingshistorikk i gjeldende kildefil</small>
+          </article>
+          <article class="card">
+            <span>Vunnet</span>
+            <strong id="tv-wins">—</strong>
+            <small id="tv-base-win-rate">Basunderhåll väg</small>
+          </article>
+          <article class="card">
+            <span>Pipeline</span>
+            <strong id="tv-pipeline">—</strong>
+            <small id="tv-pipeline-detail">Unike planlagte basområder</small>
+          </article>
+          <article class="card">
+            <span>Vunnet kontraktsverdi</span>
+            <strong id="tv-contract-value">—</strong>
+            <small>Inklusive opsjoner i Trafikverkets fil</small>
+          </article>
+        </div>
+
+        <div class="panel-head status-panel-gap">
+          <div>
+            <p class="eyebrow">KOMMENDE ANBUD</p>
+            <h3>Planlagte Basunderhåll väg-anskaffelser</h3>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Område</th>
+                <th>Region</th>
+                <th>Annonsering</th>
+                <th>Anbudsfrist</th>
+                <th>Kontraktsstart</th>
+                <th>Status</th>
+                <th>Verdiintervall</th>
+              </tr>
+            </thead>
+            <tbody id="tv-plan-body">
+              <tr><td colspan="7">Henter Trafikverkets innkjøpsplan…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel-head status-panel-gap">
+          <div>
+            <p class="eyebrow">TILDELINGER</p>
+            <h3>Terranors tilbud i Trafikverkets kontraktsfil</h3>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="status-table wide-table">
+            <thead>
+              <tr>
+                <th>Kontrakt</th>
+                <th>Kategori</th>
+                <th>Resultat</th>
+                <th>Terranor-tilbud</th>
+                <th>Vinner</th>
+                <th>Kontraktsverdi</th>
+                <th>Start</th>
+              </tr>
+            </thead>
+            <tbody id="tv-award-body">
+              <tr><td colspan="7">Henter tildelinger…</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel status-panel-gap">
