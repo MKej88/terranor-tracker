@@ -1,12 +1,19 @@
 import { ensureNordicClimateSchema } from "./nordic-climate.js";
+import {
+  BASELINE_END_YEAR,
+  BASELINE_START_YEAR,
+  QUARTER_END,
+  QUARTER_START,
+  TARGET_QUARTER,
+  TRACKER_CONFIG,
+} from "./config.js";
 
-const BASELINE_START_YEAR = 2016;
-const BASELINE_END_YEAR = 2025;
 const PARAMETERS = [
   { key: "air_temp_c", threshold: 30 },
   { key: "wind_ms", threshold: 10 },
   { key: "precipitation_mm", threshold: 0.05 },
 ];
+const BASELINE_YEARS = BASELINE_END_YEAR - BASELINE_START_YEAR + 1;
 
 function clampInt(value, fallback, min, max) {
   const n = Number.parseInt(value, 10);
@@ -26,13 +33,14 @@ function round(value, digits = 2) {
   return Math.round(n * factor) / factor;
 }
 
-function actualMetric(rows, key, threshold) {
+function actualMetric(rows, key, threshold, expectedHours) {
   const values = rows.map((row) => numeric(row[key])).filter((value) => value !== null);
   if (!values.length) return null;
   return {
     avg: values.reduce((sum, value) => sum + value, 0) / values.length,
     eventShare: values.filter((value) => value >= threshold).length / values.length,
     count: values.length,
+    coveragePct: expectedHours ? round(100 * values.length / expectedHours, 1) : 0,
   };
 }
 
@@ -53,21 +61,36 @@ async function targetComparison(db, target, days) {
   const baselineResult = await db.prepare(`SELECT parameter_key,
       SUM(avg_value*observations)/NULLIF(SUM(observations),0) AS avg_value,
       SUM(event_share*observations)/NULLIF(SUM(observations),0) AS event_share,
+      COUNT(*) AS days,
       COUNT(DISTINCT substr(observed_date,1,4)) AS years
     FROM nordic_climate_daily
-    WHERE target_id=? AND substr(observed_date,6,5) IN (${placeholders})
+    WHERE target_id=?
+      AND CAST(substr(observed_date,1,4) AS INTEGER) BETWEEN ? AND ?
+      AND substr(observed_date,6,5) IN (${placeholders})
     GROUP BY parameter_key`)
-    .bind(Number(target.target_id), ...monthDays).all();
+    .bind(Number(target.target_id), BASELINE_START_YEAR, BASELINE_END_YEAR, ...monthDays).all();
 
+  const expectedBaselineDays = Math.max(1, monthDays.length * BASELINE_YEARS);
   const baseline = Object.fromEntries((baselineResult?.results || []).map((row) => [row.parameter_key, {
     avg: numeric(row.avg_value),
     eventShare: numeric(row.event_share),
     years: Number(row.years || 0),
+    days: Number(row.days || 0),
+    dayCoveragePct: round(100 * Number(row.days || 0) / expectedBaselineDays, 1),
   }]));
+  const expectedCurrentHours = Math.max(1, days * 24);
   const actual = Object.fromEntries(PARAMETERS.map((parameter) => [
     parameter.key,
-    actualMetric(current, parameter.key, parameter.threshold),
+    actualMetric(current, parameter.key, parameter.threshold, expectedCurrentHours),
   ]));
+
+  const currentQualityReady = PARAMETERS.every((parameter) =>
+    Number(actual[parameter.key]?.coveragePct || 0) >= TRACKER_CONFIG.weatherQuality.minMetricCoveragePct);
+  const baselineQualityReady = PARAMETERS.every((parameter) => {
+    const row = baseline[parameter.key];
+    return Number(row?.years || 0) >= TRACKER_CONFIG.weatherQuality.minHistoricalYears
+      && Number(row?.dayCoveragePct || 0) >= TRACKER_CONFIG.weatherQuality.readyHistoricalDayCoveragePct;
+  });
 
   const hasPrecip = actual.precipitation_mm && baseline.precipitation_mm && baseline.precipitation_mm.eventShare !== null;
   const hasWind = actual.wind_ms && baseline.wind_ms && baseline.wind_ms.eventShare !== null;
@@ -75,10 +98,14 @@ async function targetComparison(db, target, days) {
   const precipDelta = hasPrecip ? actual.precipitation_mm.eventShare - baseline.precipitation_mm.eventShare : null;
   const windDelta = hasWind ? actual.wind_ms.eventShare - baseline.wind_ms.eventShare : null;
   const heatDelta = hasHeat ? actual.air_temp_c.eventShare - baseline.air_temp_c.eventShare : null;
-  const anomaly = [precipDelta, windDelta, heatDelta].every((value) => value !== null)
+  const rawAnomaly = [precipDelta, windDelta, heatDelta].every((value) => value !== null)
     ? -45 * precipDelta - 20 * windDelta - 8 * heatDelta
     : null;
+  const anomaly = currentQualityReady && baselineQualityReady ? rawAnomaly : null;
   const hasTemperatureAvg = actual.air_temp_c && baseline.air_temp_c && baseline.air_temp_c.avg !== null;
+  const minimumBaselineYears = Math.min(...PARAMETERS.map((parameter) => Number(baseline[parameter.key]?.years || 0)));
+  const minimumBaselineDayCoveragePct = Math.min(...PARAMETERS.map((parameter) => Number(baseline[parameter.key]?.dayCoveragePct || 0)));
+  const minimumCurrentCoveragePct = Math.min(...PARAMETERS.map((parameter) => Number(actual[parameter.key]?.coveragePct || 0)));
 
   return {
     target_id: Number(target.target_id),
@@ -91,14 +118,19 @@ async function targetComparison(db, target, days) {
     station_name: target.station_name,
     confidence: target.confidence,
     ready: anomaly !== null,
-    baseline_years: Math.max(
-      baseline.air_temp_c?.years || 0,
-      baseline.wind_ms?.years || 0,
-      baseline.precipitation_mm?.years || 0,
-    ),
-    air_temperature_delta_c: hasTemperatureAvg ? round(actual.air_temp_c.avg - baseline.air_temp_c.avg, 1) : null,
-    precipitation_event_delta_pct: precipDelta === null ? null : round(100 * precipDelta, 1),
-    high_wind_delta_pct: windDelta === null ? null : round(100 * windDelta, 1),
+    baseline_years: minimumBaselineYears,
+    data_quality: {
+      current_minimum_coverage_pct: round(minimumCurrentCoveragePct, 1),
+      baseline_minimum_day_coverage_pct: round(minimumBaselineDayCoveragePct, 1),
+      baseline_minimum_years: minimumBaselineYears,
+      current_ready: currentQualityReady,
+      baseline_ready: baselineQualityReady,
+    },
+    air_temperature_delta_c: hasTemperatureAvg && baselineQualityReady && currentQualityReady
+      ? round(actual.air_temp_c.avg - baseline.air_temp_c.avg, 1)
+      : null,
+    precipitation_event_delta_pct: anomaly === null || precipDelta === null ? null : round(100 * precipDelta, 1),
+    high_wind_delta_pct: anomaly === null || windDelta === null ? null : round(100 * windDelta, 1),
     workability_anomaly_points: round(anomaly, 1),
   };
 }
@@ -113,12 +145,12 @@ export async function getNordicClimateComparison(db, days = 7) {
     WHERE t.active=1 AND t.source IN ('DMI','FMI')
       AND (
         (c.id IS NOT NULL
-          AND (c.start_date IS NULL OR c.start_date<='2026-09-30')
-          AND (c.end_date IS NULL OR c.end_date>='2026-07-01'))
+          AND (c.start_date IS NULL OR c.start_date<=?)
+          AND (c.end_date IS NULL OR c.end_date>=?))
         OR
         (c.id IS NULL AND t.label NOT IN ('København','Kemi','Ii','Järvenpää'))
       )
-    ORDER BY t.country, t.label`).all();
+    ORDER BY t.country, t.label`).bind(QUARTER_END, QUARTER_START).all();
 
   const rows = [];
   for (const target of targetResult?.results || []) {
@@ -139,6 +171,13 @@ export async function getNordicClimateComparison(db, days = 7) {
       confidence: target.confidence,
       ready: false,
       baseline_years: 0,
+      data_quality: {
+        current_minimum_coverage_pct: 0,
+        baseline_minimum_day_coverage_pct: 0,
+        baseline_minimum_years: 0,
+        current_ready: false,
+        baseline_ready: false,
+      },
       air_temperature_delta_c: null,
       precipitation_event_delta_pct: null,
       high_wind_delta_pct: null,
@@ -170,10 +209,11 @@ export async function getNordicClimateComparison(db, days = 7) {
 
   return {
     days: safeDays,
-    scope: "Q3 2026",
+    scope: TARGET_QUARTER,
     baseline: `${BASELINE_START_YEAR}-${BASELINE_END_YEAR}`,
+    qualityVersion: "2.0",
     countries,
     targets: rows,
-    interpretation: "Positivt arbeidsforholdsavvik betyr at vanlig vær har vært mer arbeidsvennlig enn de samme kalenderdagene i Q3 2016–2025. Beregningen bruker temperatur, vind og nedbør; den er et analysegrunnlag og ikke et direkte resultatestimat.",
+    interpretation: `Positivt arbeidsforholdsavvik betyr at vanlig vær har vært mer arbeidsvennlig enn de samme kalenderdagene i Q3 ${BASELINE_START_YEAR}–${BASELINE_END_YEAR}. Sammenligning vises bare når løpende data og historikk oppfyller kvalitetskravene. Beregningen er et analysegrunnlag og ikke et direkte resultatestimat.`,
   };
 }
